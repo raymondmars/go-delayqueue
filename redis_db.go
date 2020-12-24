@@ -20,17 +20,9 @@ const (
 
 var redisInstance *redisDb
 
-type saveableTaskEntity struct {
-	Id                string
-	CycleCount        int
-	WheelPosition     int
-	TaskType          string
-	TaskParams        string
-	FactoryMethodName string
-}
 type redisDb struct {
 	Client *redis.Client
-	//task 列表key，该redis列表用于存储，task的任务ID
+	//task 列表key，该redis列表用于存储task的任务ID
 	TaskListKey string
 }
 
@@ -52,6 +44,7 @@ func getRedisDb() *redisDb {
 	return redisInstance
 }
 
+//将task保存到redis, 将task id 存入 list, task 整体内容放入其 id 对应数据槽
 func (rd *redisDb) Save(task *Task) error {
 	tk, err := json.Marshal(task)
 	if err != nil {
@@ -73,6 +66,7 @@ func (rd *redisDb) Save(task *Task) error {
 
 }
 
+//从 redis 中恢复持久化的 task 列表
 func (rd *redisDb) GetList() []*Task {
 	listResult := rd.Client.LRange(rd.TaskListKey, 0, -1)
 	listArray, _ := listResult.Result()
@@ -93,6 +87,7 @@ func (rd *redisDb) GetList() []*Task {
 	return tasks
 }
 
+//从 redis 从删除某个 task
 func (rd *redisDb) Delete(taskId string) error {
 	rd.Client.LRem(rd.TaskListKey, 0, taskId)
 	rd.Client.Del(fmt.Sprintf("%s%s", TASK_KEY_PREFIX, taskId))
@@ -100,6 +95,7 @@ func (rd *redisDb) Delete(taskId string) error {
 	return nil
 }
 
+//从 redis 中清空所有 task
 func (rd *redisDb) RemoveAll() error {
 	listResult := rd.Client.LRange(rd.TaskListKey, 0, -1)
 	listArray, _ := listResult.Result()

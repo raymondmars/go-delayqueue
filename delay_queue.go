@@ -25,7 +25,6 @@ var onceStart sync.Once
 var delayQueueInstance *delayQueue
 
 type wheel struct {
-	// NotifyTasks []*Task
 	//所有在时间轮上的任务均采用链表形式存储
 	//如果采用数组，对应已经执行过的任务，会造成不必要的空间浪费或者数组移动造成的时间复杂度
 	NotifyTasks *Task
@@ -106,6 +105,7 @@ func (dq *delayQueue) init() {
 							prev.Next = p.Next
 							p = p.Next
 						}
+						//从持久对象上删除该任务
 						dq.Persistence.Delete(taskId)
 
 					} else {
