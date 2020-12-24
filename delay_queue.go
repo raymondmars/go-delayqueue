@@ -2,15 +2,22 @@ package godelayqueue
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
 	//轮的时间长度，目前设置为一个小时，也就是时间轮每循环一次需要1小时；默认时间轮上面的每走一步的最小粒度为1秒。
 	WHEEL_SIZE = 3600
 )
+
+//定义一个获取实现具体任务对象的工厂方法，该方法需要在业务项目中定义并实现
+type BuildExecutor func(taskType string) Executor
 
 var onceNew sync.Once
 var onceStart sync.Once
@@ -28,13 +35,34 @@ type delayQueue struct {
 	//循环队列
 	TimeWheel    [WHEEL_SIZE]wheel
 	CurrentIndex uint
+	Persistence
+	//任务工厂方法指针, 需要在对象创建时初始化它
+	TaskExecutor BuildExecutor
 }
 
-//单列方法
-func GetDelayQueue() *delayQueue {
+//单列方法,使用默认的redis持久方案
+func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
 	//保证只初始化一次
 	onceNew.Do(func() {
-		delayQueueInstance = &delayQueue{}
+		delayQueueInstance = &delayQueue{
+			Persistence:  getRedisDb(),
+			TaskExecutor: serviceBuilder,
+		}
+	})
+	return delayQueueInstance
+}
+
+//单列方法，使用外部传入的持久方案
+func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persistence) *delayQueue {
+	if persistence == nil {
+		log.Fatalf("persistance is null")
+	}
+	//保证只初始化一次
+	onceNew.Do(func() {
+		delayQueueInstance = &delayQueue{
+			Persistence:  persistence,
+			TaskExecutor: serviceBuilder,
+		}
 	})
 	return delayQueueInstance
 }
@@ -46,6 +74,8 @@ func (dq *delayQueue) Start() {
 
 func (dq *delayQueue) init() {
 	go func() {
+		//从缓存中加载持久化的任务
+		dq.loadTasksFromDb()
 		for {
 			select {
 			//默认时间轮上的最小粒度为1秒
@@ -60,10 +90,11 @@ func (dq *delayQueue) init() {
 				p := taskLinkHead
 				for p != nil {
 					if p.CycleCount == 0 {
+						taskId := p.Id
 						//开启新的go routing 去做通知，加快每次遍历的速度，确保不会拖慢时间轮的运行
 						//如果任务有异常，尽量让具体的业务对象去处理，延迟队列不处理具体业务异常，
 						//这样可以保证延迟队列的业务单纯性，避免难以维护的问题。如果具体业务出现问题，需要重复通知，可以将任务重新加入队列即可。
-						go p.Execute()
+						go dq.ExecuteTask(p.TaskType, p.TaskParams)
 						//删除链表节点 task
 						//如果是第一个节点
 						if prev == p {
@@ -75,6 +106,8 @@ func (dq *delayQueue) init() {
 							prev.Next = p.Next
 							p = p.Next
 						}
+						dq.Persistence.Delete(taskId)
+
 					} else {
 						p.CycleCount--
 						prev = p
@@ -89,22 +122,51 @@ func (dq *delayQueue) init() {
 	}()
 }
 
-//将任务加入延迟队列
-func (dq *delayQueue) Push(delaySeconds int, taskType string, taskParams interface{}, executeFactory BuildExecutor) error {
+func (dq *delayQueue) loadTasksFromDb() {
+	tasks := dq.Persistence.GetList()
+	if tasks != nil && len(tasks) > 0 {
+		for _, task := range tasks {
+			// fmt.Printf("%v\n", task)
+			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
+			if delaySeconds > 0 {
+				dq.internalPush(delaySeconds, task.Id, task.TaskType, task.TaskParams)
+			}
+		}
+	}
+}
 
+//将任务加入延迟队列
+func (dq *delayQueue) Push(delaySeconds int, taskType string, taskParams interface{}) error {
+
+	var pms string
+	result, ok := taskParams.(string)
+	if !ok {
+		tp, _ := json.Marshal(taskParams)
+		pms = string(tp)
+	} else {
+		pms = result
+	}
+
+	return dq.internalPush(delaySeconds, "", taskType, pms)
+}
+
+func (dq *delayQueue) internalPush(delaySeconds int, taskId string, taskType string, taskParams string) error {
 	//从当前时间指针处开始计时
 	calculateValue := int(dq.CurrentIndex) + delaySeconds
 
 	cycle := calculateValue / WHEEL_SIZE
 	index := calculateValue % WHEEL_SIZE
 
-	pms, _ := json.Marshal(taskParams)
-
+	u := uuid.New()
+	if taskId == "" {
+		taskId = u.String()
+	}
 	task := &Task{
-		CycleCount:   cycle,
-		TaskType:     taskType,
-		TaskParams:   string(pms),
-		TaskExecutor: executeFactory,
+		Id:            taskId,
+		CycleCount:    cycle,
+		WheelPosition: index,
+		TaskType:      taskType,
+		TaskParams:    taskParams,
 	}
 	if dq.TimeWheel[index].NotifyTasks == nil {
 		dq.TimeWheel[index].NotifyTasks = task
@@ -114,8 +176,25 @@ func (dq *delayQueue) Push(delaySeconds int, taskType string, taskParams interfa
 		task.Next = head
 		dq.TimeWheel[index].NotifyTasks = task
 	}
+	//持久化任务
+	dq.Persistence.Save(task)
 
 	return nil
+}
+
+//通过工厂方法获取具体实现，然后调用方法，执行任务
+func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
+	if dq.TaskExecutor != nil {
+		executor := dq.TaskExecutor(taskType)
+		if executor != nil {
+			return executor.DoDelayTask(taskParams)
+		} else {
+			return errors.New("executor is nil")
+		}
+	} else {
+		return errors.New("task build executor is nil")
+	}
+
 }
 
 //延迟队列上，某个时间轮上的任务数量
