@@ -2,7 +2,9 @@ package godelayqueue
 
 import (
 	"fmt"
+	"log"
 	"testing"
+	"time"
 )
 
 type businessNotify struct {
@@ -10,7 +12,7 @@ type businessNotify struct {
 
 //implement Executor interface
 func (bn *businessNotify) DoDelayTask(contents string) error {
-	fmt.Println(fmt.Sprintf("Do task.....%s", contents))
+	log.Println(fmt.Sprintf("Do task.....%s", contents))
 	return nil
 }
 
@@ -33,13 +35,8 @@ func TestRunDelayQueue(t *testing.T) {
 	go func() {
 		//Simulate pushing tasks to the time wheel
 		q := GetDelayQueue(commonFactory)
-		q.Push(5, "RetryNotify", `{name: "raymond"}`)
-		q.Push(15, "GoodComments", `{name: "raymond"}`)
-		q.Push(25, "TaskOne", `{name: "raymond"}`)
-		q.Push(35, "TaskThree", `{name: "raymond"}`)
-		q.Push(45, "TaskFour", `{name: "raymond"}`)
+		q.Push(time.Second*10, "RetryNotify", "hello,raymond.")
 
 	}()
-
 	c <- struct{}{}
 }

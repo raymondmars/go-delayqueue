@@ -129,14 +129,14 @@ func (dq *delayQueue) loadTasksFromDb() {
 			// fmt.Printf("%v\n", task)
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
 			if delaySeconds > 0 {
-				dq.internalPush(delaySeconds, task.Id, task.TaskType, task.TaskParams)
+				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams)
 			}
 		}
 	}
 }
 
 //将任务加入延迟队列
-func (dq *delayQueue) Push(delaySeconds int, taskType string, taskParams interface{}) error {
+func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskParams interface{}) error {
 
 	var pms string
 	result, ok := taskParams.(string)
@@ -150,9 +150,14 @@ func (dq *delayQueue) Push(delaySeconds int, taskType string, taskParams interfa
 	return dq.internalPush(delaySeconds, "", taskType, pms)
 }
 
-func (dq *delayQueue) internalPush(delaySeconds int, taskId string, taskType string, taskParams string) error {
+func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string) error {
+	if int(delaySeconds.Seconds()) == 0 {
+		errorMsg := fmt.Sprintf("the delay time cannot be less than 1 second, current is: %v", delaySeconds)
+		log.Println(errorMsg)
+		return errors.New(errorMsg)
+	}
 	//从当前时间指针处开始计时
-	calculateValue := int(dq.CurrentIndex) + delaySeconds
+	calculateValue := int(dq.CurrentIndex) + int(delaySeconds.Seconds())
 
 	cycle := calculateValue / WHEEL_SIZE
 	index := calculateValue % WHEEL_SIZE
