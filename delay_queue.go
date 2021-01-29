@@ -116,7 +116,7 @@ func (dq *delayQueue) init() {
 
 				}
 				dq.CurrentIndex++
-				fmt.Println(pointer)
+				// fmt.Println(pointer)
 			}
 		}
 	}()
