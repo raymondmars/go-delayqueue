@@ -192,6 +192,8 @@ func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
 	if dq.TaskExecutor != nil {
 		executor := dq.TaskExecutor(taskType)
 		if executor != nil {
+			log.Printf("Execute task: %s with params: %s\n", taskType, taskParams)
+
 			return executor.DoDelayTask(taskParams)
 		} else {
 			return errors.New("executor is nil")
