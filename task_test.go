@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"testing"
-	"time"
 )
 
 type businessNotify struct {
@@ -32,11 +31,16 @@ func TestRunDelayQueue(t *testing.T) {
 	queue := GetDelayQueue(commonFactory)
 	queue.Start()
 
-	go func() {
-		//Simulate pushing tasks to the time wheel
-		q := GetDelayQueue(commonFactory)
-		q.Push(time.Second*10, "RetryNotify", "hello,raymond.")
+	// go func() {
+	// 	//Simulate pushing tasks to the time wheel
+	// 	q := GetDelayQueue(commonFactory)
+	// 	q.Push(time.Second*300, "RetryNotify", "hello,raymond.20")
+	// 	q.Push(time.Second*360, "RetryNotify", "hello,raymond.30")
+	// 	// q.Push(time.Second*40, "RetryNotify", "hello,raymond.40")
+	// 	// q.Push(time.Second*50, "RetryNotify", "hello,raymond.50")
+	// 	// q.Push(time.Second*60, "RetryNotify", "hello,raymond.60")
+	// 	// q.Push(time.Second*70, "RetryNotify", "hello,raymond.70")
 
-	}()
+	// }()
 	c <- struct{}{}
 }

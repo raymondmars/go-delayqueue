@@ -33,7 +33,7 @@ type wheel struct {
 type delayQueue struct {
 	//循环队列
 	TimeWheel    [WHEEL_SIZE]wheel
-	CurrentIndex uint
+	CurrentIndex uint //时间轮当前指针
 	Persistence
 	//任务工厂方法指针, 需要在对象创建时初始化它
 	TaskExecutor BuildExecutor
@@ -79,9 +79,12 @@ func (dq *delayQueue) init() {
 			select {
 			//默认时间轮上的最小粒度为1秒
 			case <-time.After(time.Second * 1):
-				pointer := dq.CurrentIndex % WHEEL_SIZE
 
-				taskLinkHead := dq.TimeWheel[pointer].NotifyTasks
+				if dq.CurrentIndex >= WHEEL_SIZE {
+					dq.CurrentIndex = dq.CurrentIndex % WHEEL_SIZE
+				}
+
+				taskLinkHead := dq.TimeWheel[dq.CurrentIndex].NotifyTasks
 				//遍历链表
 				//当前节点前一指针
 				prev := taskLinkHead
@@ -97,7 +100,7 @@ func (dq *delayQueue) init() {
 						//删除链表节点 task
 						//如果是第一个节点
 						if prev == p {
-							dq.TimeWheel[pointer].NotifyTasks = p.Next
+							dq.TimeWheel[dq.CurrentIndex].NotifyTasks = p.Next
 							prev = p.Next
 							p = p.Next
 						} else {
@@ -115,8 +118,9 @@ func (dq *delayQueue) init() {
 					}
 
 				}
+
 				dq.CurrentIndex++
-				// fmt.Println(pointer)
+
 			}
 		}
 	}()
@@ -160,6 +164,9 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 	calculateValue := int(dq.CurrentIndex) + int(delaySeconds.Seconds())
 
 	cycle := calculateValue / WHEEL_SIZE
+	if cycle > 0 {
+		cycle--
+	}
 	index := calculateValue % WHEEL_SIZE
 
 	u := uuid.New()
