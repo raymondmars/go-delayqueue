@@ -34,12 +34,9 @@ func TestRunDelayQueue(t *testing.T) {
 	// go func() {
 	// 	//Simulate pushing tasks to the time wheel
 	// 	q := GetDelayQueue(commonFactory)
-	// 	q.Push(time.Second*300, "RetryNotify", "hello,raymond.20")
-	// 	q.Push(time.Second*360, "RetryNotify", "hello,raymond.30")
-	// 	// q.Push(time.Second*40, "RetryNotify", "hello,raymond.40")
-	// 	// q.Push(time.Second*50, "RetryNotify", "hello,raymond.50")
-	// 	// q.Push(time.Second*60, "RetryNotify", "hello,raymond.60")
-	// 	// q.Push(time.Second*70, "RetryNotify", "hello,raymond.70")
+	// 	q.Push(time.Second*120, "RetryNotify", "hello,raymond.120")
+	// 	q.Push(time.Second*2*3600, "RetryNotify", "hello,raymond.two hours 2*3600")
+	// 	q.Push(time.Second*3*3600, "RetryNotify", "hello,raymond.three hours 3*3600")
 
 	// }()
 	c <- struct{}{}

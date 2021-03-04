@@ -131,9 +131,9 @@ func (dq *delayQueue) loadTasksFromDb() {
 	if tasks != nil && len(tasks) > 0 {
 		for _, task := range tasks {
 			// fmt.Printf("%v\n", task)
-			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
+			delaySeconds := ((task.CycleCount + 1) * WHEEL_SIZE) + task.WheelPosition
 			if delaySeconds > 0 {
-				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams)
+				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
 			}
 		}
 	}
@@ -151,10 +151,10 @@ func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskPara
 		pms = result
 	}
 
-	return dq.internalPush(delaySeconds, "", taskType, pms)
+	return dq.internalPush(delaySeconds, "", taskType, pms, true)
 }
 
-func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string) error {
+func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, notNeedPresis bool) error {
 	if int(delaySeconds.Seconds()) == 0 {
 		errorMsg := fmt.Sprintf("the delay time cannot be less than 1 second, current is: %v", delaySeconds)
 		log.Println(errorMsg)
@@ -169,8 +169,8 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 	}
 	index := calculateValue % WHEEL_SIZE
 
-	u := uuid.New()
 	if taskId == "" {
+		u := uuid.New()
 		taskId = u.String()
 	}
 	task := &Task{
@@ -182,14 +182,18 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 	}
 	if dq.TimeWheel[index].NotifyTasks == nil {
 		dq.TimeWheel[index].NotifyTasks = task
+		// log.Println(dq.TimeWheel[index].NotifyTasks)
 	} else {
 		//将新任务插入链表头，由于任务之间没有顺序关系，这种实现最为简单
 		head := dq.TimeWheel[index].NotifyTasks
 		task.Next = head
 		dq.TimeWheel[index].NotifyTasks = task
+		// log.Println(dq.TimeWheel[index].NotifyTasks)
 	}
-	//持久化任务
-	dq.Persistence.Save(task)
+	if notNeedPresis {
+		//持久化任务
+		dq.Persistence.Save(task)
+	}
 
 	return nil
 }

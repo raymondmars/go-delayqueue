@@ -46,11 +46,16 @@ func getRedisDb() *redisDb {
 
 //将task保存到redis, 将task id 存入 list, task 整体内容放入其 id 对应数据槽
 func (rd *redisDb) Save(task *Task) error {
+	//持久化时，不需要存储链表关系
+	task.Next = nil
 	tk, err := json.Marshal(task)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
+	// log.Println(task)
+	// log.Println(string(tk))
+
 	if string(tk) != "" {
 		key := fmt.Sprintf("%s%s", TASK_KEY_PREFIX, task.Id)
 		//如果key不存在
