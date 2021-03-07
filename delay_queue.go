@@ -131,7 +131,10 @@ func (dq *delayQueue) loadTasksFromDb() {
 	if tasks != nil && len(tasks) > 0 {
 		for _, task := range tasks {
 			// fmt.Printf("%v\n", task)
-			delaySeconds := ((task.CycleCount + 1) * WHEEL_SIZE) + task.WheelPosition
+			// delaySeconds := ((task.CycleCount + 1) * WHEEL_SIZE) + task.WheelPosition
+			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
+			// delaySeconds := task.LeftSeconds
+
 			if delaySeconds > 0 {
 				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
 			}
@@ -154,19 +157,17 @@ func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskPara
 	return dq.internalPush(delaySeconds, "", taskType, pms, true)
 }
 
-func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, notNeedPresis bool) error {
+func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, needPresis bool) error {
 	if int(delaySeconds.Seconds()) == 0 {
 		errorMsg := fmt.Sprintf("the delay time cannot be less than 1 second, current is: %v", delaySeconds)
 		log.Println(errorMsg)
 		return errors.New(errorMsg)
 	}
 	//从当前时间指针处开始计时
-	calculateValue := int(dq.CurrentIndex) + int(delaySeconds.Seconds())
+	seconds := int(delaySeconds.Seconds())
+	calculateValue := int(dq.CurrentIndex) + seconds
 
 	cycle := calculateValue / WHEEL_SIZE
-	if cycle > 0 {
-		cycle--
-	}
 	index := calculateValue % WHEEL_SIZE
 
 	if taskId == "" {
@@ -180,6 +181,16 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		TaskType:      taskType,
 		TaskParams:    taskParams,
 	}
+	if needPresis {
+		//持久化任务
+		dq.Persistence.Save(task)
+	}
+
+	if cycle > 0 && index <= int(dq.CurrentIndex) {
+		cycle--
+		task.CycleCount = cycle
+	}
+
 	if dq.TimeWheel[index].NotifyTasks == nil {
 		dq.TimeWheel[index].NotifyTasks = task
 		// log.Println(dq.TimeWheel[index].NotifyTasks)
@@ -189,10 +200,6 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		task.Next = head
 		dq.TimeWheel[index].NotifyTasks = task
 		// log.Println(dq.TimeWheel[index].NotifyTasks)
-	}
-	if notNeedPresis {
-		//持久化任务
-		dq.Persistence.Save(task)
 	}
 
 	return nil

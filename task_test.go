@@ -34,10 +34,11 @@ func TestRunDelayQueue(t *testing.T) {
 	// go func() {
 	// 	//Simulate pushing tasks to the time wheel
 	// 	q := GetDelayQueue(commonFactory)
-	// 	q.Push(time.Second*120, "RetryNotify", "hello,raymond.120")
-	// 	q.Push(time.Second*2*3600, "RetryNotify", "hello,raymond.two hours 2*3600")
-	// 	q.Push(time.Second*3*3600, "RetryNotify", "hello,raymond.three hours 3*3600")
+	// 	q.Push(time.Second*30, "RetryNotify", "hello,raymond.120")
+	// 	// q.Push(time.Second*2*3600, "RetryNotify", "hello,raymond.two hours 2*3600")
+	// 	// q.Push(time.Second*3*3600, "RetryNotify", "hello,raymond.three hours 3*3600")
 
 	// }()
 	c <- struct{}{}
+	// fmt.Println("delay.pacypay.pay.notify"[:6])
 }
