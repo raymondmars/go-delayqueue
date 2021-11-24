@@ -1,4 +1,6 @@
-# go-delayqueue
+# go-delayqueue  
+[中文](https://github.com/0RaymondJiang0/go-delayqueue/blob/main/README.md)  | [English](https://github.com/0RaymondJiang0/go-delayqueue/blob/main/README.en.md)   
+
 A delay queue implemented in go language
 
 * 时间轮算法实现的延迟队列，支持细粒度延迟任务执行，用户自定义任务实现，无上下文依赖，可扩展性高。       
