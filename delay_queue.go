@@ -12,11 +12,13 @@ import (
 )
 
 const (
-	//轮的时间长度，目前设置为一个小时，也就是时间轮每循环一次需要1小时；默认时间轮上面的每走一步的最小粒度为1秒。
+	// The time length of the round is currently set to one hour, that is,
+	// it takes 1 hour for each cycle of the time wheel;
+	// the minimum granularity of each step on the default time wheel is 1 second.
 	WHEEL_SIZE = 3600
 )
 
-//定义一个获取实现具体任务对象的工厂方法，该方法需要在业务项目中定义并实现
+// factory method
 type BuildExecutor func(taskType string) Executor
 
 var onceNew sync.Once
@@ -25,23 +27,21 @@ var onceStart sync.Once
 var delayQueueInstance *delayQueue
 
 type wheel struct {
-	//所有在时间轮上的任务均采用链表形式存储
-	//如果采用数组，对应已经执行过的任务，会造成不必要的空间浪费或者数组移动造成的时间复杂度
+	// all tasks of the time wheel saved in linked table
 	NotifyTasks *Task
 }
 
 type delayQueue struct {
-	//循环队列
+	// circular queue
 	TimeWheel    [WHEEL_SIZE]wheel
-	CurrentIndex uint //时间轮当前指针
+	CurrentIndex uint // time wheel current pointer
 	Persistence
-	//任务工厂方法指针, 需要在对象创建时初始化它
+	// task executor
 	TaskExecutor BuildExecutor
 }
 
-//单列方法,使用默认的redis持久方案
+// singleton method use redis as persistence layer
 func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
-	//保证只初始化一次
 	onceNew.Do(func() {
 		delayQueueInstance = &delayQueue{
 			Persistence:  getRedisDb(),
@@ -51,12 +51,11 @@ func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
 	return delayQueueInstance
 }
 
-//单列方法，使用外部传入的持久方案
+// singleton method use other persistence layer
 func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persistence) *delayQueue {
 	if persistence == nil {
 		log.Fatalf("persistance is null")
 	}
-	//保证只初始化一次
 	onceNew.Do(func() {
 		delayQueueInstance = &delayQueue{
 			Persistence:  persistence,
@@ -67,48 +66,50 @@ func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persisten
 }
 
 func (dq *delayQueue) Start() {
-	//保证只会有一个时间轮计时器
+	// ensure only one time wheel has been created
 	onceStart.Do(dq.init)
 }
 
 func (dq *delayQueue) init() {
 	go func() {
-		//从缓存中加载持久化的任务
+		// load task from cache
 		dq.loadTasksFromDb()
 		for {
 			select {
-			//默认时间轮上的最小粒度为1秒
 			case <-time.After(time.Second * 1):
-
 				if dq.CurrentIndex >= WHEEL_SIZE {
 					dq.CurrentIndex = dq.CurrentIndex % WHEEL_SIZE
 				}
-
 				taskLinkHead := dq.TimeWheel[dq.CurrentIndex].NotifyTasks
-				//遍历链表
-				//当前节点前一指针
+
+				dq.CurrentIndex++
+
+				// fetch linked list
 				prev := taskLinkHead
-				//当前节点指针
 				p := taskLinkHead
 				for p != nil {
 					if p.CycleCount == 0 {
 						taskId := p.Id
-						//开启新的go routing 去做通知，加快每次遍历的速度，确保不会拖慢时间轮的运行
-						//如果任务有异常，尽量让具体的业务对象去处理，延迟队列不处理具体业务异常，
-						//这样可以保证延迟队列的业务单纯性，避免难以维护的问题。如果具体业务出现问题，需要重复通知，可以将任务重新加入队列即可。
+						// Open a new go routing for notifications, speed up each traversal,
+						// and ensure that the time wheel will not be slowed down
+						// If there is an exception in the task, try to let the specific business object handle it,
+						// and the delay queue does not handle the specific business exception.
+						// This can ensure the business simplicity of the delay queue and avoid problems that are difficult to maintain.
+						// If there is a problem with a specific business and you need to be notified repeatedly,
+						// you can add the task back to the queue.
 						go dq.ExecuteTask(p.TaskType, p.TaskParams)
-						//删除链表节点 task
-						//如果是第一个节点
+						// delete task
+						// if the first node
 						if prev == p {
 							dq.TimeWheel[dq.CurrentIndex].NotifyTasks = p.Next
 							prev = p.Next
 							p = p.Next
 						} else {
-							//如果不是第一个节点
+							// if it is not the first node
 							prev.Next = p.Next
 							p = p.Next
 						}
-						//从持久对象上删除该任务
+						// remove the task from the persistent object
 						dq.Persistence.Delete(taskId)
 
 					} else {
@@ -116,11 +117,7 @@ func (dq *delayQueue) init() {
 						prev = p
 						p = p.Next
 					}
-
 				}
-
-				dq.CurrentIndex++
-
 			}
 		}
 	}()
@@ -130,10 +127,7 @@ func (dq *delayQueue) loadTasksFromDb() {
 	tasks := dq.Persistence.GetList()
 	if tasks != nil && len(tasks) > 0 {
 		for _, task := range tasks {
-			// fmt.Printf("%v\n", task)
-			// delaySeconds := ((task.CycleCount + 1) * WHEEL_SIZE) + task.WheelPosition
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
-			// delaySeconds := task.LeftSeconds
 
 			if delaySeconds > 0 {
 				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
@@ -142,7 +136,7 @@ func (dq *delayQueue) loadTasksFromDb() {
 	}
 }
 
-//将任务加入延迟队列
+// Add a task to the delay queue
 func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskParams interface{}) error {
 
 	var pms string
@@ -163,7 +157,7 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		log.Println(errorMsg)
 		return errors.New(errorMsg)
 	}
-	//从当前时间指针处开始计时
+	// Start timing from the current time pointer
 	seconds := int(delaySeconds.Seconds())
 	calculateValue := int(dq.CurrentIndex) + seconds
 
@@ -182,7 +176,6 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		TaskParams:    taskParams,
 	}
 	if needPresis {
-		//持久化任务
 		dq.Persistence.Save(task)
 	}
 
@@ -193,19 +186,19 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 
 	if dq.TimeWheel[index].NotifyTasks == nil {
 		dq.TimeWheel[index].NotifyTasks = task
-		// log.Println(dq.TimeWheel[index].NotifyTasks)
 	} else {
-		//将新任务插入链表头，由于任务之间没有顺序关系，这种实现最为简单
+		// Insert a new task into the head of the linked list.
+		// Since there is no order relationship between tasks,
+		// this implementation is the easiest
 		head := dq.TimeWheel[index].NotifyTasks
 		task.Next = head
 		dq.TimeWheel[index].NotifyTasks = task
-		// log.Println(dq.TimeWheel[index].NotifyTasks)
 	}
 
 	return nil
 }
 
-//通过工厂方法获取具体实现，然后调用方法，执行任务
+// execute task
 func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
 	if dq.TaskExecutor != nil {
 		executor := dq.TaskExecutor(taskType)
@@ -222,7 +215,7 @@ func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
 
 }
 
-//延迟队列上，某个时间轮上的任务数量
+// Get the number of tasks on a time wheel
 func (dq *delayQueue) WheelTaskQuantity(index int) int {
 	tasks := dq.TimeWheel[index].NotifyTasks
 	if tasks == nil {

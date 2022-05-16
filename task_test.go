@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"testing"
+	"time"
 )
 
 type businessNotify struct {
@@ -17,28 +18,36 @@ func (bn *businessNotify) DoDelayTask(contents string) error {
 
 //a factory method to build executor
 func commonFactory(taskType string) Executor {
-	//do filter business service by taskType ...
-	//...
-
 	return &businessNotify{}
 }
 
 func TestRunDelayQueue(t *testing.T) {
 	c := make(chan struct{})
-	// redis := getRedisDb()
-	// redis.RemoveAll()
+	redis := getRedisDb()
+	redis.RemoveAll()
 
 	queue := GetDelayQueue(commonFactory)
 	queue.Start()
 
-	// go func() {
-	// 	//Simulate pushing tasks to the time wheel
-	// 	q := GetDelayQueue(commonFactory)
-	// 	q.Push(time.Second*30, "RetryNotify", "hello,raymond.120")
-	// 	// q.Push(time.Second*2*3600, "RetryNotify", "hello,raymond.two hours 2*3600")
-	// 	// q.Push(time.Second*3*3600, "RetryNotify", "hello,raymond.three hours 3*3600")
+	q := GetDelayQueue(commonFactory)
 
-	// }()
+	go func() {
+		q.Push(time.Second*10, "RetryNotify", "hello,raymond - 10")
+	}()
+	go func() {
+		q.Push(time.Second*15, "RetryNotify", "hello,raymond - 15")
+	}()
+	go func() {
+		q.Push(time.Second*20, "RetryNotify", "hello,raymond - 20")
+	}()
+
+	go func() {
+		select {
+		case <-time.After(time.Second * 21):
+			<-c
+		}
+	}()
+
 	c <- struct{}{}
-	// fmt.Println("delay.pacypay.pay.notify"[:6])
+
 }

@@ -14,7 +14,7 @@ import (
 var lock sync.Once
 
 const (
-	//每个task存储到redis当中的key前缀，便于与其他数据的区分度
+	// task key prefix
 	TASK_KEY_PREFIX = "delaytk_"
 )
 
@@ -22,11 +22,11 @@ var redisInstance *redisDb
 
 type redisDb struct {
 	Client *redis.Client
-	//task 列表key，该redis列表用于存储task的任务ID
+	// task list store task id
 	TaskListKey string
 }
 
-//单列方法
+// singleton method
 func getRedisDb() *redisDb {
 
 	lock.Do(func() {
@@ -34,8 +34,8 @@ func getRedisDb() *redisDb {
 		redisInstance = &redisDb{
 			Client: redis.NewClient(&redis.Options{
 				Addr:     GetEvnWithDefaultVal("REDIS_ADDR", "localhost:6379"),
-				Password: GetEvnWithDefaultVal("REDIS_PWD", ""), // no password set
-				DB:       int64(dbNumber),                       // use  DB
+				Password: GetEvnWithDefaultVal("REDIS_PWD", ""),
+				DB:       int64(dbNumber),
 			}),
 			TaskListKey: GetEvnWithDefaultVal("DELAY_QUEUE_LIST_KEY", "__delay_queue_list__"),
 		}
@@ -44,21 +44,17 @@ func getRedisDb() *redisDb {
 	return redisInstance
 }
 
-//将task保存到redis, 将task id 存入 list, task 整体内容放入其 id 对应数据槽
+// save task to redis
 func (rd *redisDb) Save(task *Task) error {
-	//持久化时，不需要存储链表关系
 	task.Next = nil
 	tk, err := json.Marshal(task)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	// log.Println(task)
-	// log.Println(string(tk))
 
 	if string(tk) != "" {
 		key := fmt.Sprintf("%s%s", TASK_KEY_PREFIX, task.Id)
-		//如果key不存在
 		if val, _ := rd.Client.Get(key).Result(); val == "" {
 			rd.Client.LPush(rd.TaskListKey, task.Id)
 		}
@@ -71,7 +67,7 @@ func (rd *redisDb) Save(task *Task) error {
 
 }
 
-//从 redis 中恢复持久化的 task 列表
+// get list from redis
 func (rd *redisDb) GetList() []*Task {
 	listResult := rd.Client.LRange(rd.TaskListKey, 0, -1)
 	listArray, _ := listResult.Result()
@@ -92,7 +88,7 @@ func (rd *redisDb) GetList() []*Task {
 	return tasks
 }
 
-//从 redis 从删除某个 task
+// remove task from redis
 func (rd *redisDb) Delete(taskId string) error {
 	rd.Client.LRem(rd.TaskListKey, 0, taskId)
 	rd.Client.Del(fmt.Sprintf("%s%s", TASK_KEY_PREFIX, taskId))
@@ -100,7 +96,7 @@ func (rd *redisDb) Delete(taskId string) error {
 	return nil
 }
 
-//从 redis 中清空所有 task
+// remove all tasks from redis
 func (rd *redisDb) RemoveAll() error {
 	listResult := rd.Client.LRange(rd.TaskListKey, 0, -1)
 	listArray, _ := listResult.Result()
