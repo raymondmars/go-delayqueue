@@ -21,8 +21,12 @@ const (
 // factory method
 type BuildExecutor func(taskType string) Executor
 
+type SlotRecorder map[string]int
+
 var onceNew sync.Once
 var onceStart sync.Once
+
+var mutex = &sync.RWMutex{}
 
 var delayQueueInstance *delayQueue
 
@@ -38,14 +42,17 @@ type delayQueue struct {
 	Persistence
 	// task executor
 	TaskExecutor BuildExecutor
+
+	TaskQueryTable SlotRecorder
 }
 
 // singleton method use redis as persistence layer
 func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
 	onceNew.Do(func() {
 		delayQueueInstance = &delayQueue{
-			Persistence:  getRedisDb(),
-			TaskExecutor: serviceBuilder,
+			Persistence:    getRedisDb(),
+			TaskExecutor:   serviceBuilder,
+			TaskQueryTable: make(map[string]int),
 		}
 	})
 	return delayQueueInstance
@@ -58,8 +65,9 @@ func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persisten
 	}
 	onceNew.Do(func() {
 		delayQueueInstance = &delayQueue{
-			Persistence:  persistence,
-			TaskExecutor: serviceBuilder,
+			Persistence:    persistence,
+			TaskExecutor:   serviceBuilder,
+			TaskQueryTable: make(map[string]int),
 		}
 	})
 	return delayQueueInstance
@@ -111,6 +119,8 @@ func (dq *delayQueue) init() {
 						}
 						// remove the task from the persistent object
 						dq.Persistence.Delete(taskId)
+						// remove task from query table
+						delete(dq.TaskQueryTable, taskId)
 
 					} else {
 						p.CycleCount--
@@ -128,7 +138,6 @@ func (dq *delayQueue) loadTasksFromDb() {
 	if tasks != nil && len(tasks) > 0 {
 		for _, task := range tasks {
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
-
 			if delaySeconds > 0 {
 				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
 			}
@@ -137,8 +146,7 @@ func (dq *delayQueue) loadTasksFromDb() {
 }
 
 // Add a task to the delay queue
-func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskParams interface{}) error {
-
+func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskParams interface{}) (task *Task, err error) {
 	var pms string
 	result, ok := taskParams.(string)
 	if !ok {
@@ -148,15 +156,22 @@ func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskPara
 		pms = result
 	}
 
-	return dq.internalPush(delaySeconds, "", taskType, pms, true)
+	task, err = dq.internalPush(delaySeconds, "", taskType, pms, true)
+	if err == nil {
+		mutex.Lock()
+		dq.TaskQueryTable[task.Id] = task.WheelPosition
+		mutex.Unlock()
+	}
+
+	return
 }
 
-func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, needPresis bool) error {
+func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, needPresis bool) (*Task, error) {
 	if int(delaySeconds.Seconds()) == 0 {
 		errorMsg := fmt.Sprintf("the delay time cannot be less than 1 second, current is: %v", delaySeconds)
-		log.Println(errorMsg)
-		return errors.New(errorMsg)
+		return nil, errors.New(errorMsg)
 	}
+
 	// Start timing from the current time pointer
 	seconds := int(delaySeconds.Seconds())
 	calculateValue := int(dq.CurrentIndex) + seconds
@@ -184,6 +199,7 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		task.CycleCount = cycle
 	}
 
+	mutex.Lock()
 	if dq.TimeWheel[index].NotifyTasks == nil {
 		dq.TimeWheel[index].NotifyTasks = task
 	} else {
@@ -194,8 +210,9 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		task.Next = head
 		dq.TimeWheel[index].NotifyTasks = task
 	}
+	mutex.Unlock()
 
-	return nil
+	return task, nil
 }
 
 // execute task
@@ -227,4 +244,18 @@ func (dq *delayQueue) WheelTaskQuantity(index int) int {
 	}
 
 	return k
+}
+
+func (dq *delayQueue) GetTask(taskId string) *Task {
+	if val, ok := dq.TaskQueryTable[taskId]; !ok {
+		return nil
+	} else {
+		tasks := dq.TimeWheel[val].NotifyTasks
+		for p := tasks; p != nil; p = p.Next {
+			if p.Id == taskId {
+				return p
+			}
+		}
+		return nil
+	}
 }
