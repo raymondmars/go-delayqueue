@@ -54,7 +54,7 @@ func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
 		delayQueueInstance = &delayQueue{
 			Persistence:    getRedisDb(),
 			TaskExecutor:   serviceBuilder,
-			TaskQueryTable: make(map[string]int),
+			TaskQueryTable: make(SlotRecorder),
 		}
 	})
 	return delayQueueInstance
@@ -69,7 +69,7 @@ func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persisten
 		delayQueueInstance = &delayQueue{
 			Persistence:    persistence,
 			TaskExecutor:   serviceBuilder,
-			TaskQueryTable: make(map[string]int),
+			TaskQueryTable: make(SlotRecorder),
 		}
 	})
 	return delayQueueInstance
@@ -265,4 +265,12 @@ func (dq *delayQueue) GetTask(taskId string) *Task {
 		}
 		return nil
 	}
+}
+
+func (dq *delayQueue) RemoveAllTasks() error {
+	dq.TaskQueryTable = make(SlotRecorder)
+	for _, wheel := range dq.TimeWheel {
+		wheel.NotifyTasks = nil
+	}
+	return nil
 }
