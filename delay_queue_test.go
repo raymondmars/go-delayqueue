@@ -23,15 +23,37 @@ func testFactory(taskType string) Executor {
 	return &testNotify{}
 }
 
+type testDb struct{}
+
+func (td *testDb) Save(task *Task) error {
+	return nil
+}
+
+func (td *testDb) GetList() []*Task {
+	return []*Task{}
+}
+
+func (td *testDb) Delete(taskId string) error {
+	return nil
+}
+
+func testBeforeSetUp() {
+	// (getRedisDb()).RemoveAll()
+}
+
+func getTestQueue() *delayQueue {
+	return GetDelayQueueWithPersis(testFactory, &testDb{})
+}
+
 func TestCanntPushTask(t *testing.T) {
-	q := GetDelayQueue(testFactory)
+	q := getTestQueue()
 	_, err := q.Push(999*time.Millisecond, "test", "")
 	assert.Equal(t, err.Error(), "the delay time cannot be less than 1 second, current is: 999ms")
 }
 
 func TestPushTaskInCorrectPosition(t *testing.T) {
-	q := GetDelayQueue(testFactory)
-
+	testBeforeSetUp()
+	q := getTestQueue()
 	var wg sync.WaitGroup
 	for i := 1; i <= WHEEL_SIZE; i++ {
 		wg.Add(1)
@@ -48,7 +70,8 @@ func TestPushTaskInCorrectPosition(t *testing.T) {
 }
 
 func TestConcurrentPush(t *testing.T) {
-	q := GetDelayQueue(testFactory)
+	testBeforeSetUp()
+	q := getTestQueue()
 	targetSeconds := 50
 	taskCounts := 10000
 	var wg sync.WaitGroup
@@ -63,8 +86,23 @@ func TestConcurrentPush(t *testing.T) {
 	assert.Equal(t, taskCounts, q.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 }
 
+func TestExecuteTask(t *testing.T) {
+	testBeforeSetUp()
+	q := getTestQueue()
+	q.Start()
+	targetSeconds := 2
+	tk, _ := q.Push(time.Duration(targetSeconds)*time.Second, "test", "hello,world")
+	assert.NotNil(t, tk)
+
+	// wait to task be executed
+	time.Sleep(time.Duration(targetSeconds+2) * time.Second)
+	assert.Equal(t, 0, q.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+	assert.Nil(t, q.GetTask(tk.Id))
+}
+
 func TestGetTask(t *testing.T) {
-	q := GetDelayQueue(testFactory)
+	testBeforeSetUp()
+	q := getTestQueue()
 	tk1, _ := q.Push(10*time.Second, "test1", "hello1")
 	tk2, _ := q.Push(10*time.Second, "test2", "hello2")
 	tk3, _ := q.Push(20*time.Second, "test3", "hello3")

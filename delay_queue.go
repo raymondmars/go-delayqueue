@@ -23,6 +23,8 @@ type BuildExecutor func(taskType string) Executor
 
 type SlotRecorder map[string]int
 
+type ActionEvent func()
+
 var onceNew sync.Once
 var onceStart sync.Once
 
@@ -79,9 +81,10 @@ func (dq *delayQueue) Start() {
 }
 
 func (dq *delayQueue) init() {
+	// load task from cache
+	dq.loadTasksFromDb()
+
 	go func() {
-		// load task from cache
-		dq.loadTasksFromDb()
 		for {
 			select {
 			case <-time.After(time.Second * 1):
@@ -89,6 +92,7 @@ func (dq *delayQueue) init() {
 					dq.CurrentIndex = dq.CurrentIndex % WHEEL_SIZE
 				}
 				taskLinkHead := dq.TimeWheel[dq.CurrentIndex].NotifyTasks
+				headIndex := dq.CurrentIndex
 
 				dq.CurrentIndex++
 
@@ -109,7 +113,7 @@ func (dq *delayQueue) init() {
 						// delete task
 						// if the first node
 						if prev == p {
-							dq.TimeWheel[dq.CurrentIndex].NotifyTasks = p.Next
+							dq.TimeWheel[headIndex].NotifyTasks = p.Next
 							prev = p.Next
 							p = p.Next
 						} else {
@@ -139,7 +143,10 @@ func (dq *delayQueue) loadTasksFromDb() {
 		for _, task := range tasks {
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
 			if delaySeconds > 0 {
-				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
+				tk, _ := dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
+				if tk != nil {
+					dq.TaskQueryTable[task.Id] = task.WheelPosition
+				}
 			}
 		}
 	}
