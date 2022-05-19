@@ -267,6 +267,14 @@ func (dq *delayQueue) GetTask(taskId string) *Task {
 	}
 }
 
+func (dq *delayQueue) UpdateTask(taskId, taskType, taskParams string) error {
+	task := dq.GetTask(taskId)
+	if task == nil {
+		return errors.New("task not found")
+	}
+	return nil
+}
+
 func (dq *delayQueue) RemoveAllTasks() error {
 	dq.TaskQueryTable = make(SlotRecorder)
 	for _, wheel := range dq.TimeWheel {
