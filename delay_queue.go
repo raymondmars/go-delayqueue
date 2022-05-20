@@ -124,8 +124,9 @@ func (dq *delayQueue) init() {
 						// remove the task from the persistent object
 						dq.Persistence.Delete(taskId)
 						// remove task from query table
+						mutex.Lock()
 						delete(dq.TaskQueryTable, taskId)
-
+						mutex.Unlock()
 					} else {
 						p.CycleCount--
 						prev = p
@@ -254,7 +255,10 @@ func (dq *delayQueue) WheelTaskQuantity(index int) int {
 }
 
 func (dq *delayQueue) GetTask(taskId string) *Task {
-	if val, ok := dq.TaskQueryTable[taskId]; !ok {
+	mutex.Lock()
+	val, ok := dq.TaskQueryTable[taskId]
+	mutex.Unlock()
+	if !ok {
 		return nil
 	} else {
 		tasks := dq.TimeWheel[val].NotifyTasks
@@ -272,7 +276,46 @@ func (dq *delayQueue) UpdateTask(taskId, taskType, taskParams string) error {
 	if task == nil {
 		return errors.New("task not found")
 	}
+	task.TaskType = taskType
+	task.TaskParams = taskParams
+
+	// update cache
+	dq.Persistence.Save(task)
+
 	return nil
+}
+
+func (dq *delayQueue) DeleteTask(taskId string) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	val, ok := dq.TaskQueryTable[taskId]
+	if !ok {
+		return errors.New("task not found")
+	} else {
+		p := dq.TimeWheel[val].NotifyTasks
+		prev := p
+		for p != nil {
+			if p.Id == taskId {
+				// if current node is root node
+				if p == prev {
+					dq.TimeWheel[val].NotifyTasks = p.Next
+				} else {
+					prev.Next = p.Next
+				}
+				// clear cache
+				delete(dq.TaskQueryTable, taskId)
+				dq.Persistence.Delete(taskId)
+				p = nil
+				prev = nil
+
+				break
+			} else {
+				prev = p
+				p = p.Next
+			}
+		}
+		return nil
+	}
 }
 
 func (dq *delayQueue) RemoveAllTasks() error {
@@ -280,5 +323,6 @@ func (dq *delayQueue) RemoveAllTasks() error {
 	for _, wheel := range dq.TimeWheel {
 		wheel.NotifyTasks = nil
 	}
+	dq.Persistence.RemoveAll()
 	return nil
 }

@@ -37,6 +37,10 @@ func (td *testDb) Delete(taskId string) error {
 	return nil
 }
 
+func (td *testDb) RemoveAll() error {
+	return nil
+}
+
 var dq *delayQueue
 
 func testBeforeSetUp() {
@@ -114,4 +118,80 @@ func TestGetTask(t *testing.T) {
 
 	assert.Equal(t, dq.GetTask(tk3.Id).TaskType, "test3")
 	assert.Equal(t, dq.GetTask(tk3.Id).TaskParams, "hello3")
+}
+
+func TestUpdateTask(t *testing.T) {
+	testBeforeSetUp()
+	tk1, _ := dq.Push(10*time.Second, "test1", "hello1")
+
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskType, "test1")
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskParams, "hello1")
+
+	err := dq.UpdateTask(tk1.Id, "test100", "hello100")
+	assert.Nil(t, err)
+
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskType, "test100")
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskParams, "hello100")
+}
+
+func TestDeleteTask(t *testing.T) {
+	testBeforeSetUp()
+	targetSeconds := 10
+	tk1, _ := dq.Push(time.Duration(targetSeconds)*time.Second, "test1", "hello1")
+	tk2, _ := dq.Push(time.Duration(targetSeconds)*time.Second, "test2", "hello2")
+	tk3, _ := dq.Push(time.Duration(targetSeconds)*time.Second, "test3", "hello3")
+	assert.Equal(t, 3, len(dq.TaskQueryTable))
+	assert.Equal(t, 3, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+	err := dq.DeleteTask(tk2.Id)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(dq.TaskQueryTable))
+	assert.Equal(t, 2, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskType, "test1")
+	assert.Equal(t, dq.GetTask(tk1.Id).TaskParams, "hello1")
+
+	assert.Equal(t, dq.GetTask(tk3.Id).TaskType, "test3")
+	assert.Equal(t, dq.GetTask(tk3.Id).TaskParams, "hello3")
+
+	dq.DeleteTask(tk1.Id)
+	dq.DeleteTask(tk3.Id)
+
+	assert.Equal(t, 0, len(dq.TaskQueryTable))
+	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+}
+
+func TestConcurrentDeleteTasks(t *testing.T) {
+	testBeforeSetUp()
+	targetSeconds := 50
+	taskCounts := 10000
+	taskIds := []string{}
+	var lock sync.Mutex
+
+	var wg sync.WaitGroup
+	for i := 0; i < taskCounts; i++ {
+		wg.Add(1)
+		go func() {
+			tk, _ := dq.Push(time.Duration(targetSeconds)*time.Second, "test", "")
+			lock.Lock()
+			defer lock.Unlock()
+			taskIds = append(taskIds, tk.Id)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	assert.Equal(t, taskCounts, len(dq.TaskQueryTable))
+	assert.Equal(t, taskCounts, len(taskIds))
+	assert.Equal(t, taskCounts, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+
+	for i := 0; i < taskCounts; i++ {
+		wg.Add(1)
+		go func(index int) {
+			dq.DeleteTask(taskIds[index])
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+
+	assert.Equal(t, 0, len(dq.TaskQueryTable))
+	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 }
