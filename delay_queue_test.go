@@ -3,6 +3,7 @@ package godelayqueue
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -23,28 +24,28 @@ func testFactory(taskType string) Executor {
 	return &testNotify{}
 }
 
-type testDb struct{}
+type testDoNothingDb struct{}
 
-func (td *testDb) Save(task *Task) error {
+func (td *testDoNothingDb) Save(task *Task) error {
 	return nil
 }
 
-func (td *testDb) GetList() []*Task {
+func (td *testDoNothingDb) GetList() []*Task {
 	return []*Task{}
 }
 
-func (td *testDb) Delete(taskId string) error {
+func (td *testDoNothingDb) Delete(taskId string) error {
 	return nil
 }
 
-func (td *testDb) RemoveAll() error {
+func (td *testDoNothingDb) RemoveAll() error {
 	return nil
 }
 
 var dq *delayQueue
 
 func testBeforeSetUp() {
-	presisDb := &testDb{}
+	presisDb := &testDoNothingDb{}
 	dq = &delayQueue{
 		Persistence:    presisDb,
 		TaskExecutor:   testFactory,
@@ -118,6 +119,38 @@ func TestGetTask(t *testing.T) {
 
 	assert.Equal(t, dq.GetTask(tk3.Id).TaskType, "test3")
 	assert.Equal(t, dq.GetTask(tk3.Id).TaskParams, "hello3")
+}
+
+func TestConcurrentGetTask(t *testing.T) {
+	testBeforeSetUp()
+	targetSeconds := 50
+	taskCounts := 10000
+	var taskIds [10000]string
+	var wg sync.WaitGroup
+	total := 0
+	for i := 0; i < taskCounts; i++ {
+		tk, _ := dq.Push(time.Duration(targetSeconds)*time.Second, "test", i)
+		taskIds[i] = tk.Id
+		total = total + i
+	}
+
+	innerTotal := 0
+	for i := 0; i < taskCounts; i++ {
+		wg.Add(1)
+		go func(index int) {
+			tk := dq.GetTask(taskIds[index])
+			if tk != nil {
+				p, _ := strconv.Atoi(tk.TaskParams)
+				mutex.Lock()
+				innerTotal = innerTotal + p
+				mutex.Unlock()
+			}
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+	assert.Equal(t, taskCounts, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+	assert.Equal(t, total, innerTotal)
 }
 
 func TestUpdateTask(t *testing.T) {
@@ -194,4 +227,13 @@ func TestConcurrentDeleteTasks(t *testing.T) {
 
 	assert.Equal(t, 0, len(dq.TaskQueryTable))
 	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+}
+
+func BenchmarkPushTask(b *testing.B) {
+	testBeforeSetUp()
+	targetSeconds := 50
+
+	for i := 0; i < b.N; i++ {
+		dq.Push(time.Duration(targetSeconds)*time.Second, "test", i)
+	}
 }

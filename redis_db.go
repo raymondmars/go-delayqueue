@@ -67,6 +67,8 @@ func (rd *redisDb) Save(task *Task) error {
 	} else {
 		return errors.New("task is emtpy")
 	}
+	// result := rd.Client.Set(rd.Context, task.Id, task.TaskParams, 0)
+	// return result.Err()
 
 }
 

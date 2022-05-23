@@ -1,5 +1,7 @@
 package godelayqueue
 
+import "fmt"
+
 type Task struct {
 	Id string
 	// the number of cycles of the task on the time wheel,
@@ -14,4 +16,8 @@ type Task struct {
 	TaskParams string
 
 	Next *Task
+}
+
+func (t *Task) String() string {
+	return fmt.Sprintf("%s %d %d %s %s", t.Id, t.CycleCount, t.WheelPosition, t.TaskType, t.TaskParams)
 }
