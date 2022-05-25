@@ -49,7 +49,6 @@ func getRedisDb() *redisDb {
 
 // save task to redis
 func (rd *redisDb) Save(task *Task) error {
-	task.Next = nil
 	tk, err := json.Marshal(task)
 	if err != nil {
 		log.Println(err)
@@ -67,9 +66,6 @@ func (rd *redisDb) Save(task *Task) error {
 	} else {
 		return errors.New("task is emtpy")
 	}
-	// result := rd.Client.Set(rd.Context, task.Id, task.TaskParams, 0)
-	// return result.Err()
-
 }
 
 // get list from redis

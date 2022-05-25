@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -67,8 +68,9 @@ func BenchmarkSaveToDb(b *testing.B) {
 	b.ResetTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
+		u := uuid.New()
 		task := &Task{
-			Id:            fmt.Sprintf("1%d", i),
+			Id:            u.String(),
 			CycleCount:    5 * i,
 			WheelPosition: 10,
 			TaskType:      "test",

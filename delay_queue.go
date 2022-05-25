@@ -198,9 +198,6 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		TaskType:      taskType,
 		TaskParams:    taskParams,
 	}
-	if needPresis {
-		dq.Persistence.Save(task)
-	}
 
 	if cycle > 0 && index <= int(dq.CurrentIndex) {
 		cycle--
@@ -219,6 +216,10 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		dq.TimeWheel[index].NotifyTasks = task
 	}
 	mutex.Unlock()
+
+	if needPresis {
+		dq.Persistence.Save(task)
+	}
 
 	return task, nil
 }

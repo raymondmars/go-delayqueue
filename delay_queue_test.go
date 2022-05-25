@@ -53,6 +53,15 @@ func testBeforeSetUp() {
 	}
 }
 
+func testWithRedisBeforeSetUp() {
+	dq = &delayQueue{
+		Persistence:    getRedisDb(),
+		TaskExecutor:   testFactory,
+		TaskQueryTable: make(SlotRecorder),
+	}
+	dq.RemoveAllTasks()
+}
+
 func TestCanntPushTask(t *testing.T) {
 	testBeforeSetUp()
 	_, err := dq.Push(999*time.Millisecond, "test", "")
@@ -227,6 +236,41 @@ func TestConcurrentDeleteTasks(t *testing.T) {
 
 	assert.Equal(t, 0, len(dq.TaskQueryTable))
 	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
+}
+
+func TestDelayQueueAndRedisIntegrate(t *testing.T) {
+	testWithRedisBeforeSetUp()
+
+	randomSlots := []int{60, 100, 560, 2450, 3500}
+	eachSoltNodes := 100
+	for _, seconds := range randomSlots {
+		for i := 0; i < eachSoltNodes; i++ {
+			dq.Push(time.Duration(seconds)*time.Second, "test", i)
+		}
+	}
+	assert.Equal(t, eachSoltNodes*len(randomSlots), len(dq.TaskQueryTable))
+	for _, seconds := range randomSlots {
+		assert.Equal(t, eachSoltNodes, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
+	}
+	//remove nodes
+	dq.TaskQueryTable = make(SlotRecorder)
+	for i := 0; i < len(dq.TimeWheel); i++ {
+		dq.TimeWheel[i].NotifyTasks = nil
+	}
+	// Do not use range to feach wheel, it will use copy value
+	// for _, wheel := range dq.TimeWheel {
+	// 	wheel.NotifyTasks = nil
+	// }
+	assert.Equal(t, 0, len(dq.TaskQueryTable))
+	for _, seconds := range randomSlots {
+		assert.Equal(t, 0, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
+	}
+	// load from cache
+	dq.loadTasksFromDb()
+	assert.Equal(t, eachSoltNodes*len(randomSlots), len(dq.TaskQueryTable))
+	for _, seconds := range randomSlots {
+		assert.Equal(t, eachSoltNodes, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
+	}
 }
 
 func BenchmarkPushTask(b *testing.B) {
