@@ -11,13 +11,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    # services:
-    #   redis:
-    #     image: redis
-    #     options: >-
-    #       --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
-    #     ports:
-    #       - 6379:6379
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 6379:6379
 
     steps:
     - uses: actions/checkout@v3
@@ -27,10 +27,10 @@ jobs:
       with:
         go-version: 1.15
 
-    - name: Start Redis v${{ matrix.redis-version }}
-      uses: superchargejs/redis-github-action@1.1.0
-      with:
-        redis-version: ${{ matrix.redis-version }}
+#     - name: Start Redis v${{ matrix.redis-version }}
+#       uses: superchargejs/redis-github-action@1.1.0
+#       with:
+#         redis-version: ${{ matrix.redis-version }}
 
     - name: Test
       run: go test -v ./...
