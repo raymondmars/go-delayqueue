@@ -321,8 +321,8 @@ func (dq *delayQueue) DeleteTask(taskId string) error {
 
 func (dq *delayQueue) RemoveAllTasks() error {
 	dq.TaskQueryTable = make(SlotRecorder)
-	for _, wheel := range dq.TimeWheel {
-		wheel.NotifyTasks = nil
+	for i := 0; i < len(dq.TimeWheel); i++ {
+		dq.TimeWheel[i].NotifyTasks = nil
 	}
 	dq.Persistence.RemoveAll()
 	return nil

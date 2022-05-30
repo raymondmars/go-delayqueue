@@ -257,7 +257,7 @@ func TestDelayQueueAndRedisIntegrate(t *testing.T) {
 	for i := 0; i < len(dq.TimeWheel); i++ {
 		dq.TimeWheel[i].NotifyTasks = nil
 	}
-	// Do not use range to feach wheel, it will use copy value
+	// Do not use range to fetch wheel, it will use copy value
 	// for _, wheel := range dq.TimeWheel {
 	// 	wheel.NotifyTasks = nil
 	// }
