@@ -42,6 +42,14 @@ func (td *testDoNothingDb) RemoveAll() error {
 	return nil
 }
 
+func (td *testDoNothingDb) GetWheelTimePointer() int {
+	return 0
+}
+
+func (td *testDoNothingDb) SaveWheelTimePointer(index int) error {
+	return nil
+}
+
 var dq *delayQueue
 
 func testBeforeSetUp() {
