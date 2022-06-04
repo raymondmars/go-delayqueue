@@ -5,4 +5,6 @@ type Persistence interface {
 	GetList() []*Task
 	Delete(taskId string) error
 	RemoveAll() error
+	GetWheelTimePointer() int
+	SaveWheelTimePointer(index int) error
 }

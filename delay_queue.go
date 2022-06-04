@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,7 +16,8 @@ const (
 	// The time length of the round is currently set to one hour, that is,
 	// it takes 1 hour for each cycle of the time wheel;
 	// the minimum granularity of each step on the default time wheel is 1 second.
-	WHEEL_SIZE = 3600
+	WHEEL_SIZE                      = 3600
+	REFRESH_POINTER_DEFAULT_SECONDS = 5
 )
 
 // factory method
@@ -84,6 +86,10 @@ func (dq *delayQueue) init() {
 	// load task from cache
 	dq.loadTasksFromDb()
 
+	// update pointer
+	dq.CurrentIndex = uint(dq.Persistence.GetWheelTimePointer())
+
+	// start time wheel
 	go func() {
 		for {
 			select {
@@ -135,6 +141,23 @@ func (dq *delayQueue) init() {
 				}
 			}
 		}
+	}()
+
+	// async to update timewheel pointer
+	go func() {
+		// refresh pinter internal seconds
+		refreshInternal, _ := strconv.Atoi(GetEvnWithDefaultVal("REFRESH_POINTER_INTERNAL", fmt.Sprintf("%d", REFRESH_POINTER_DEFAULT_SECONDS)))
+		if refreshInternal < REFRESH_POINTER_DEFAULT_SECONDS {
+			refreshInternal = REFRESH_POINTER_DEFAULT_SECONDS
+		}
+		for {
+			select {
+			case <-time.After(time.Second * REFRESH_POINTER_DEFAULT_SECONDS):
+				err := dq.Persistence.SaveWheelTimePointer(int(dq.CurrentIndex))
+				log.Println(err)
+			}
+		}
+
 	}()
 }
 

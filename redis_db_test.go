@@ -1,6 +1,7 @@
 package godelayqueue
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -61,6 +62,15 @@ func TestRemoveAllTasksFromDb(t *testing.T) {
 	assert.Equal(t, counts, len(testRedisDb.GetList()))
 	testRedisDb.RemoveAll()
 	assert.Equal(t, 0, len(testRedisDb.GetList()))
+}
+
+func TestSaveAndGetTimeWheelPointer(t *testing.T) {
+	testBeforeClearDb()
+	testRedisDb.Client.Del(context.Background(), TIME_POINTER_CACHE_KEY)
+
+	assert.Equal(t, 0, testRedisDb.GetWheelTimePointer())
+	testRedisDb.SaveWheelTimePointer(100)
+	assert.Equal(t, 100, testRedisDb.GetWheelTimePointer())
 }
 
 func BenchmarkSaveToDb(b *testing.B) {

@@ -16,7 +16,8 @@ var lock sync.Once
 
 const (
 	// task key prefix
-	TASK_KEY_PREFIX = "delaytk_"
+	TASK_KEY_PREFIX        = "delaytk_"
+	TIME_POINTER_CACHE_KEY = "delay_timewheel_index"
 )
 
 var redisInstance *redisDb
@@ -108,4 +109,18 @@ func (rd *redisDb) RemoveAll() error {
 	}
 	rd.Client.Del(rd.Context, rd.TaskListKey)
 	return nil
+}
+
+func (rd *redisDb) SaveWheelTimePointer(index int) error {
+	cmd := rd.Client.Set(rd.Context, TIME_POINTER_CACHE_KEY, index, 0)
+	return cmd.Err()
+}
+
+func (rd *redisDb) GetWheelTimePointer() int {
+	if result := rd.Client.Get(rd.Context, TIME_POINTER_CACHE_KEY); result.Err() == nil {
+		index, _ := strconv.Atoi(result.Val())
+		return index
+	} else {
+		return 0
+	}
 }
