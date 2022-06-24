@@ -1,4 +1,4 @@
-package godelayqueue
+package core
 
 type Persistence interface {
 	Save(task *Task) error

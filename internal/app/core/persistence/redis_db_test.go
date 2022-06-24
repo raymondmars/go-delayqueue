@@ -1,4 +1,4 @@
-package godelayqueue
+package core
 
 import (
 	"context"

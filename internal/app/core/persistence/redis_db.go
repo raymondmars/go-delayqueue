@@ -1,4 +1,4 @@
-package godelayqueue
+package core
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/0RaymondJiang0/go-delayqueue/internal/pkg/common"
 	"github.com/go-redis/redis/v8"
 )
 
@@ -33,14 +34,14 @@ type redisDb struct {
 func getRedisDb() *redisDb {
 
 	lock.Do(func() {
-		dbNumber, _ := strconv.Atoi(GetEvnWithDefaultVal("REDIS_DB", "0"))
+		dbNumber, _ := strconv.Atoi(common.GetEvnWithDefaultVal("REDIS_DB", "0"))
 		redisInstance = &redisDb{
 			Client: redis.NewClient(&redis.Options{
-				Addr:     GetEvnWithDefaultVal("REDIS_ADDR", "localhost:6379"),
-				Password: GetEvnWithDefaultVal("REDIS_PWD", ""),
+				Addr:     common.GetEvnWithDefaultVal("REDIS_ADDR", "localhost:6379"),
+				Password: common.GetEvnWithDefaultVal("REDIS_PWD", ""),
 				DB:       dbNumber,
 			}),
-			TaskListKey: GetEvnWithDefaultVal("DELAY_QUEUE_LIST_KEY", "__delay_queue_list__"),
+			TaskListKey: common.GetEvnWithDefaultVal("DELAY_QUEUE_LIST_KEY", "__delay_queue_list__"),
 			Context:     context.Background(),
 		}
 	})
