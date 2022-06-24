@@ -1,4 +1,4 @@
-package godelayqueue
+package core
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0RaymondJiang0/go-delayqueue/internal/pkg/common"
 	"github.com/google/uuid"
 )
 
@@ -146,7 +147,7 @@ func (dq *delayQueue) init() {
 	// async to update timewheel pointer
 	go func() {
 		// refresh pinter internal seconds
-		refreshInternal, _ := strconv.Atoi(GetEvnWithDefaultVal("REFRESH_POINTER_INTERNAL", fmt.Sprintf("%d", REFRESH_POINTER_DEFAULT_SECONDS)))
+		refreshInternal, _ := strconv.Atoi(common.GetEvnWithDefaultVal("REFRESH_POINTER_INTERNAL", fmt.Sprintf("%d", REFRESH_POINTER_DEFAULT_SECONDS)))
 		if refreshInternal < REFRESH_POINTER_DEFAULT_SECONDS {
 			refreshInternal = REFRESH_POINTER_DEFAULT_SECONDS
 		}
