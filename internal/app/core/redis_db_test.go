@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/raymondmars/go-delayqueue/internal/app/notify"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,13 +21,13 @@ func TestSaveTaskIntoDb(t *testing.T) {
 		Id:            "123",
 		CycleCount:    5,
 		WheelPosition: 10,
-		TaskType:      "test",
-		TaskParams:    "hello,world",
+		TaskMode:      notify.HTTP,
+		TaskData:      "hello,world",
 	}
 	testRedisDb.Save(task)
 	list := testRedisDb.GetList()
 	assert.Equal(t, 1, len(list))
-	assert.Equal(t, "123 5 10 test hello,world", list[0].String())
+	assert.Equal(t, "123 5 10 1 hello,world", list[0].String())
 }
 
 func TestRemoveTaskFromDb(t *testing.T) {
@@ -35,8 +36,8 @@ func TestRemoveTaskFromDb(t *testing.T) {
 		Id:            "123",
 		CycleCount:    5,
 		WheelPosition: 10,
-		TaskType:      "test",
-		TaskParams:    "hello,world",
+		TaskMode:      notify.HTTP,
+		TaskData:      "hello,world",
 	}
 	testRedisDb.Save(task)
 	list := testRedisDb.GetList()
@@ -54,8 +55,8 @@ func TestRemoveAllTasksFromDb(t *testing.T) {
 			Id:            fmt.Sprintf("1%d", i),
 			CycleCount:    5 * i,
 			WheelPosition: 10,
-			TaskType:      "test",
-			TaskParams:    "hello,world",
+			TaskMode:      notify.HTTP,
+			TaskData:      "hello,world",
 		}
 		testRedisDb.Save(task)
 	}
@@ -83,8 +84,8 @@ func BenchmarkSaveToDb(b *testing.B) {
 			Id:            u.String(),
 			CycleCount:    5 * i,
 			WheelPosition: 10,
-			TaskType:      "test",
-			TaskParams:    "hello,world",
+			TaskMode:      notify.SubPub,
+			TaskData:      "hello,world",
 		}
 		testRedisDb.Save(task)
 	}
