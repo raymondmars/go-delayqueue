@@ -8,7 +8,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/0RaymondJiang0/go-delayqueue/internal/pkg/common"
+	"github.com/raymondmars/go-delayqueue/internal/app/core"
+	"github.com/raymondmars/go-delayqueue/internal/app/message"
+	"github.com/raymondmars/go-delayqueue/internal/app/notify"
+	"github.com/raymondmars/go-delayqueue/internal/pkg/common"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -18,6 +21,8 @@ const (
 	DEFAULT_PORT      = "3450"
 	DEFAULT_CONN_TYPE = "tcp"
 )
+
+var delayQueue *core.DelayQueue
 
 func main() {
 	// init logger
@@ -34,6 +39,9 @@ func main() {
 	host := common.GetEvnWithDefaultVal("CONN_HOST", DEFAULT_HOST)
 	port := common.GetEvnWithDefaultVal("CONN_PORT", DEFAULT_PORT)
 	conType := common.GetEvnWithDefaultVal("CONN_TYPE", DEFAULT_CONN_TYPE)
+
+	delayQueue = core.GetDelayQueue(notify.BuildExecutor)
+	go delayQueue.Start()
 
 	l, err := net.Listen(conType, fmt.Sprintf("%s:%s", host, port))
 	if err != nil {
@@ -57,40 +65,6 @@ func main() {
 	//telnet x.x.x.x xxxx <<EOF
 }
 
-// Handles incoming requests.
-// func handleRequest2(conn net.Conn) {
-// 	buf := make([]byte, 0, 1024) // big buffer
-// 	tmp := make([]byte, 16)      // each chunck package
-// 	k := 0
-// 	for {
-// 		n, err := conn.Read(tmp)
-// 		if err != nil {
-// 			if err != io.EOF {
-// 				fmt.Println("read error:", err)
-// 			}
-// 			break
-// 		}
-// 		// if k == 0 {
-// 		// 	cmd := string(tmp)
-
-// 		// }
-// 		fmt.Println(string(tmp[0]))
-// 		buf = append(buf, tmp[:n]...)
-// 		k++
-// 	}
-
-// 	log.Infoln("received:", string(buf))
-
-// 	if string(buf) == "ping" {
-// 		conn.Write([]byte("pong"))
-// 	} else {
-// 		// Send a response back to person contacting us.
-// 		conn.Write([]byte("Message received."))
-// 	}
-// 	// Close the connection when you're done with it.
-// 	conn.Close()
-// }
-
 func handleRequest(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	contents := []string{}
@@ -105,10 +79,14 @@ func handleRequest(conn net.Conn) {
 		if strings.TrimSpace(line) == "" {
 			break
 		}
+		line = strings.Trim(line, "\n")
+		line = strings.Trim(line, "\r")
+
 		contents = append(contents, line)
 	}
 	fmt.Println(contents)
-	conn.Write([]byte("Message received."))
-
+	processor := message.NewProcessor()
+	resp := processor.Receive(delayQueue, contents)
+	conn.Write([]byte(resp.String()))
 	conn.Close()
 }

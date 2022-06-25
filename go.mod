@@ -1,4 +1,4 @@
-module github.com/0RaymondJiang0/go-delayqueue
+module github.com/raymondmars/go-delayqueue
 
 go 1.15
 

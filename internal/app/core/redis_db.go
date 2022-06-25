@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/0RaymondJiang0/go-delayqueue/internal/pkg/common"
 	"github.com/go-redis/redis/v8"
+	"github.com/raymondmars/go-delayqueue/internal/pkg/common"
 )
 
 var lock sync.Once

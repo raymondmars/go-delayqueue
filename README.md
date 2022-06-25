@@ -1,5 +1,5 @@
 # go-delayqueue
-![example workflow](https://github.com/0RaymondJiang0/go-delayqueue/actions/workflows/build.yml/badge.svg)
+![example workflow](https://github.com/raymondmars/go-delayqueue/actions/workflows/build.yml/badge.svg)
 
 A delay queue implemented in go language
 

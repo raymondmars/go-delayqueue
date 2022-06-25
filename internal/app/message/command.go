@@ -3,7 +3,7 @@ package message
 type Command uint
 
 const (
-	Test Command = iota
+	Test Command = iota + 1
 	Push
 	Subscribe
 )
