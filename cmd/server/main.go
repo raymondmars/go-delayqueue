@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	DEFAULT_HOST      = "127.0.0.1"
+	DEFAULT_HOST      = "0.0.0.0"
 	DEFAULT_PORT      = "3450"
 	DEFAULT_CONN_TYPE = "tcp"
 )
@@ -25,8 +25,8 @@ const (
 var delayQueue *core.DelayQueue
 
 // client send command echo -n "ping" | nc localhost 3450
-//telnet localhost 3450
-// quit: ctrl+], 然后，输入 quit
+// telnet localhost 3450
+// quit: ctrl+] and input quit
 //telnet x.x.x.x xxxx <<EOF
 func main() {
 	// init logger

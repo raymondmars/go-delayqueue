@@ -1,0 +1,24 @@
+version: '3.5'
+
+x-logging:
+  &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "10"
+
+services:
+  go-delayqueue:
+    image: 0raymond0/go-delayqueue:1.0
+    container_name: go-delayqueue
+    restart: always
+    logging: *default-logging
+    environment:
+      REFRESH_POINTER_DEFAULT_SECONDS: 5
+      REDIS_ADDR: '10.109.9.10:55003'
+      REDIS_DB: 0
+      REDIS_PWD: ''
+      DELAY_QUEUE_LIST_KEY: '__delay_queue_list__'
+
+    ports:
+      - "3450:3450"

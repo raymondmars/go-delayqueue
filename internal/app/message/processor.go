@@ -3,6 +3,7 @@ package message
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -22,9 +23,10 @@ const (
 const (
 	NOT_READY            ResponseErrCode = 1000
 	INVALID_MESSAGE      ResponseErrCode = 1010
-	AUTH_FAILED          ResponseErrCode = 1011
-	INVALID_COMMAND      ResponseErrCode = 1012
-	INVALID_PUSH_MESSAGE ResponseErrCode = 1013
+	AUTH_FAILED          ResponseErrCode = 1012
+	INVALID_DELAY_TIME   ResponseErrCode = 1014
+	INVALID_COMMAND      ResponseErrCode = 1016
+	INVALID_PUSH_MESSAGE ResponseErrCode = 1018
 )
 
 type Response struct {
@@ -35,9 +37,9 @@ type Response struct {
 
 func (r Response) String() string {
 	if r.Status == Ok {
-		return fmt.Sprintf("%d,%s", r.Status, r.Message)
+		return fmt.Sprintf("%d|%s", r.Status, r.Message)
 	} else {
-		return fmt.Sprintf("%d,%d,%s", r.Status, r.ErrorCode, r.Message)
+		return fmt.Sprintf("%d|%d|%s", r.Status, r.ErrorCode, r.Message)
 	}
 }
 
@@ -63,6 +65,7 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 			ErrorCode: NOT_READY,
 		}
 	}
+	log.Info("Receive message:" + strings.Join(contents, " | "))
 	// message format is:
 	// first line is auth code; 0 ----------|
 	// second line is cmd name; 1 ----------|
@@ -71,35 +74,44 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 	// fifth line is http url if task mode is HTTP
 	// or is message contents if task mode is PubSub; 4 ----------|
 	// sixth line is message contents if task mode is HTTP; 5 ----------|
-	if len(contents) == 0 || len(contents) > 6 {
+	if len(contents) < 2 || len(contents) > 6 {
 		return &Response{
 			Status:    Fail,
 			ErrorCode: INVALID_MESSAGE,
 		}
 	}
+
 	if contents[0] != messageAuthCode {
 		return &Response{
 			Status:    Fail,
 			ErrorCode: AUTH_FAILED,
 		}
 	}
-	code, _ := strconv.Atoi(contents[1])
-	delaySeconds, _ := strconv.Atoi(contents[2])
-	if delaySeconds == 0 {
-		return &Response{
-			Status:    Fail,
-			ErrorCode: INVALID_MESSAGE,
-		}
-	}
-	cmd := Command(code)
 
-	switch cmd {
-	case Test:
+	code, _ := strconv.Atoi(contents[1])
+	cmd := Command(code)
+	if cmd == Test {
 		return &Response{
 			Status:  Ok,
 			Message: "pong",
 		}
+	}
+
+	switch cmd {
 	case Push:
+		if len(contents) < 5 {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: INVALID_PUSH_MESSAGE,
+			}
+		}
+		delaySeconds, _ := strconv.Atoi(contents[2])
+		if delaySeconds <= 0 {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: INVALID_DELAY_TIME,
+			}
+		}
 		wayCode, _ := strconv.Atoi(contents[3])
 		switch notify.NotifyMode(wayCode) {
 		case notify.HTTP:
@@ -140,13 +152,15 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 			return &Response{
 				Status:    Fail,
 				ErrorCode: INVALID_PUSH_MESSAGE,
+				Message:   "Invalid notify way.",
 			}
 		}
 
 	case Subscribe:
 		return &Response{
-			Status:  Ok,
-			Message: "subscribe done",
+			Status:    Fail,
+			ErrorCode: INVALID_PUSH_MESSAGE,
+			Message:   "Subscribe is not implemented.",
 		}
 	default:
 		return &Response{

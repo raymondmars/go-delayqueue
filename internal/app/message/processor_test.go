@@ -64,8 +64,49 @@ func TestProcessorReceive(t *testing.T) {
 	resp := processor.Receive(dq, []string{})
 	assert.Equal(t, Fail, resp.Status)
 	assert.Equal(t, NOT_READY, resp.ErrorCode)
+
 	dq.Start()
 	resp = processor.Receive(dq, []string{})
 	assert.Equal(t, Fail, resp.Status)
 	assert.Equal(t, INVALID_MESSAGE, resp.ErrorCode)
+
+	resp = processor.Receive(dq, []string{"hello", "1"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, AUTH_FAILED, resp.ErrorCode)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "1"})
+	assert.Equal(t, Ok, resp.Status)
+	assert.Equal(t, "pong", resp.Message)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "2", "0", "1", "http://www.google.com", "test"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_DELAY_TIME, resp.ErrorCode)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "2", "100", "1", "http://www.google.com"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_PUSH_MESSAGE, resp.ErrorCode)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "2", "50", "1", "http://www.google.com", "test"})
+	assert.Equal(t, Ok, resp.Status)
+	assert.Equal(t, "push done", resp.Message)
+	assert.Equal(t, 1, dq.WheelTaskQuantity(50%core.WHEEL_SIZE))
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "3", "50"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_PUSH_MESSAGE, resp.ErrorCode)
+	assert.Equal(t, "Subscribe is not implemented.", resp.Message)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "4"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_COMMAND, resp.ErrorCode)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "2", "100", "2", "test"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_PUSH_MESSAGE, resp.ErrorCode)
+	assert.Equal(t, "PubSub is not implemented.", resp.Message)
+
+	resp = processor.Receive(dq, []string{messageAuthCode, "2", "100", "3", "test"})
+	assert.Equal(t, Fail, resp.Status)
+	assert.Equal(t, INVALID_PUSH_MESSAGE, resp.ErrorCode)
+	assert.Equal(t, "Invalid notify way.", resp.Message)
 }
