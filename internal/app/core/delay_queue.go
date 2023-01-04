@@ -84,11 +84,12 @@ func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persisten
 }
 
 func (dq *DelayQueue) Start() {
-	// ensure only one time wheel has been created
+	// ensure only excute one time even multi delay queue instances call it
 	onceStart.Do(dq.init)
 }
 
 func (dq *DelayQueue) init() {
+	log.Println("delay queue init...")
 	// load task from cache
 	dq.loadTasksFromDb()
 
@@ -158,7 +159,7 @@ func (dq *DelayQueue) init() {
 		}
 		for {
 			select {
-			case <-time.After(time.Second * REFRESH_POINTER_DEFAULT_SECONDS):
+			case <-time.After(time.Second * time.Duration(refreshInternal)):
 				err := dq.Persistence.SaveWheelTimePointer(int(dq.CurrentIndex))
 				if err != nil {
 					log.Println(err)

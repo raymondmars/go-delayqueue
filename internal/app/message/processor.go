@@ -10,6 +10,7 @@ import (
 
 	"github.com/raymondmars/go-delayqueue/internal/app/core"
 	"github.com/raymondmars/go-delayqueue/internal/app/notify"
+	"github.com/raymondmars/go-delayqueue/internal/pkg/common"
 )
 
 type ResponseStatusCode uint
@@ -27,6 +28,8 @@ const (
 	INVALID_DELAY_TIME   ResponseErrCode = 1014
 	INVALID_COMMAND      ResponseErrCode = 1016
 	INVALID_PUSH_MESSAGE ResponseErrCode = 1018
+	UPDATE_FAILED        ResponseErrCode = 1020
+	DELETE_FAILED        ResponseErrCode = 1022
 )
 
 type Response struct {
@@ -47,7 +50,7 @@ type Processor interface {
 	Receive(queue *core.DelayQueue, contents []string) *Response
 }
 
-var messageAuthCode = "0_ONMARS_1"
+var messageAuthCode = common.GetEvnWithDefaultVal("MESSAGE_AUTH_CODE", "0_ONMARS_1")
 
 type processor struct {
 }
@@ -69,11 +72,10 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 	// message format is:
 	// first line is auth code; 0 ----------|
 	// second line is cmd name; 1 ----------|
-	// third line is delay seconds; 2 ----------|
-	// fourth line is task mode;    3 ----------|
-	// fifth line is http url if task mode is HTTP
-	// or is message contents if task mode is PubSub; 4 ----------|
-	// sixth line is message contents if task mode is HTTP; 5 ----------|
+	// third line is delay seconds or task id(for update, delete); 2 ----------|
+	// fourth line is notify way 3 ----------|
+	// fifth line http url if task mode is HTTP, or is queueName if task mode is PubSub; 4 ----------|
+	// sixth line is message contents; 5 ----------|
 	if len(contents) < 2 || len(contents) > 6 {
 		return &Response{
 			Status:    Fail,
@@ -99,7 +101,7 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 
 	switch cmd {
 	case Push:
-		if len(contents) < 5 {
+		if len(contents) != 6 {
 			return &Response{
 				Status:    Fail,
 				ErrorCode: INVALID_PUSH_MESSAGE,
@@ -113,41 +115,13 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 			}
 		}
 		wayCode, _ := strconv.Atoi(contents[3])
+		taskTarget := contents[4]
+		taskData := contents[5]
 		switch notify.NotifyMode(wayCode) {
 		case notify.HTTP:
-			if len(contents) != 6 {
-				return &Response{
-					Status:    Fail,
-					ErrorCode: INVALID_PUSH_MESSAGE,
-				}
-			}
-			targetUrl := contents[4]
-			taskData := contents[5]
-			_, err := queue.Push(time.Duration(delaySeconds)*time.Second, notify.HTTP, fmt.Sprintf("%s|%s", targetUrl, taskData))
-			if err != nil {
-				return &Response{
-					Status:    Fail,
-					ErrorCode: INVALID_PUSH_MESSAGE,
-					Message:   err.Error(),
-				}
-			}
-			return &Response{
-				Status:  Ok,
-				Message: "push done",
-			}
+			return p.executePush(queue, taskTarget, taskData, delaySeconds, notify.HTTP)
 		case notify.SubPub:
-			if len(contents) != 5 {
-				return &Response{
-					Status:    Fail,
-					ErrorCode: INVALID_PUSH_MESSAGE,
-				}
-			}
-			log.Warnln("PubSub is not implemented.")
-			return &Response{
-				Status:    Fail,
-				ErrorCode: INVALID_PUSH_MESSAGE,
-				Message:   "PubSub is not implemented.",
-			}
+			return p.executePush(queue, taskTarget, taskData, delaySeconds, notify.SubPub)
 		default:
 			return &Response{
 				Status:    Fail,
@@ -156,16 +130,71 @@ func (p *processor) Receive(queue *core.DelayQueue, contents []string) *Response
 			}
 		}
 
-	case Subscribe:
-		return &Response{
-			Status:    Fail,
-			ErrorCode: INVALID_PUSH_MESSAGE,
-			Message:   "Subscribe is not implemented.",
+	case Update:
+		if len(contents) != 6 {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: INVALID_PUSH_MESSAGE,
+			}
+		}
+		taskId := strings.TrimSpace(contents[2])
+		wayCode, _ := strconv.Atoi(contents[3])
+		taskTarget := contents[4]
+		taskData := contents[5]
+		err := queue.UpdateTask(taskId, notify.NotifyMode(wayCode), fmt.Sprintf("%s|%s", taskTarget, taskData))
+		if err != nil {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: UPDATE_FAILED,
+				Message:   err.Error(),
+			}
+		} else {
+			return &Response{
+				Status:  Ok,
+				Message: taskId,
+			}
+		}
+	case Delete:
+		if len(contents) != 3 {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: INVALID_PUSH_MESSAGE,
+			}
+		}
+		taskId := strings.TrimSpace(contents[2])
+		err := queue.DeleteTask(taskId)
+		if err != nil {
+			return &Response{
+				Status:    Fail,
+				ErrorCode: DELETE_FAILED,
+				Message:   err.Error(),
+			}
+		} else {
+			return &Response{
+				Status:  Ok,
+				Message: taskId,
+			}
 		}
 	default:
 		return &Response{
 			Status:    Fail,
 			ErrorCode: INVALID_COMMAND,
+			Message:   "Invalid command.",
 		}
+	}
+}
+
+func (p *processor) executePush(queue *core.DelayQueue, target, data string, delaySeconds int, mode notify.NotifyMode) *Response {
+	task, err := queue.Push(time.Duration(delaySeconds)*time.Second, mode, fmt.Sprintf("%s|%s", target, data))
+	if err != nil {
+		return &Response{
+			Status:    Fail,
+			ErrorCode: INVALID_PUSH_MESSAGE,
+			Message:   err.Error(),
+		}
+	}
+	return &Response{
+		Status:  Ok,
+		Message: task.Id,
 	}
 }

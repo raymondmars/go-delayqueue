@@ -25,12 +25,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.15
-
-#     - name: Start Redis v${{ matrix.redis-version }}
-#       uses: superchargejs/redis-github-action@1.1.0
-#       with:
-#         redis-version: ${{ matrix.redis-version }}
+        go-version: 1.16
 
     - name: Test
       run: go test -v ./...

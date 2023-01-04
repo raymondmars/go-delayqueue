@@ -47,5 +47,4 @@ func (nt *httpNotify) DoDelayTask(contents string) error {
 		log.Warnln(fmt.Sprintf("invalid http notify contents: %s", contents))
 		return errors.New("invalid notify contents")
 	}
-
 }

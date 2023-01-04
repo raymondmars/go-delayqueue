@@ -15,10 +15,19 @@ services:
     logging: *default-logging
     environment:
       REFRESH_POINTER_DEFAULT_SECONDS: 5
-      REDIS_ADDR: '10.109.9.10:55003'
+      REDIS_ADDR: 'redis:6379'
       REDIS_DB: 0
       REDIS_PWD: ''
       DELAY_QUEUE_LIST_KEY: '__delay_queue_list__'
+      QUEUE_SUPPLIER: 'rabbitmq'
+      AMQP_URI: 'amqp://admin:Start@321@rabbitmq:5672'
+
+    networks:
+       - raymond-locals
 
     ports:
       - "3450:3450"
+
+networks:
+  raymond-locals:
+    name: custom_network
