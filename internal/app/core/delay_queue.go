@@ -1,4 +1,4 @@
-package godelayqueue
+package core
 
 import (
 	"encoding/json"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/raymondmars/go-delayqueue/internal/app/notify"
+	"github.com/raymondmars/go-delayqueue/internal/pkg/common"
 )
 
 const (
@@ -21,7 +23,7 @@ const (
 )
 
 // factory method
-type BuildExecutor func(taskType string) Executor
+type BuildExecutor func(taskMode notify.NotifyMode) notify.Executor
 
 type SlotRecorder map[string]int
 
@@ -32,14 +34,14 @@ var onceStart sync.Once
 
 var mutex = &sync.RWMutex{}
 
-var delayQueueInstance *delayQueue
+var delayQueueInstance *DelayQueue
 
 type wheel struct {
 	// all tasks of the time wheel saved in linked table
 	NotifyTasks *Task
 }
 
-type delayQueue struct {
+type DelayQueue struct {
 	// circular queue
 	TimeWheel    [WHEEL_SIZE]wheel
 	CurrentIndex uint // time wheel current pointer
@@ -48,41 +50,46 @@ type delayQueue struct {
 	TaskExecutor BuildExecutor
 
 	TaskQueryTable SlotRecorder
+	// ready flag
+	IsReady bool
 }
 
 // singleton method use redis as persistence layer
-func GetDelayQueue(serviceBuilder BuildExecutor) *delayQueue {
+func GetDelayQueue(serviceBuilder BuildExecutor) *DelayQueue {
 	onceNew.Do(func() {
-		delayQueueInstance = &delayQueue{
+		delayQueueInstance = &DelayQueue{
 			Persistence:    getRedisDb(),
 			TaskExecutor:   serviceBuilder,
 			TaskQueryTable: make(SlotRecorder),
+			IsReady:        false,
 		}
 	})
 	return delayQueueInstance
 }
 
 // singleton method use other persistence layer
-func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persistence) *delayQueue {
+func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persistence) *DelayQueue {
 	if persistence == nil {
 		log.Fatalf("persistance is null")
 	}
 	onceNew.Do(func() {
-		delayQueueInstance = &delayQueue{
+		delayQueueInstance = &DelayQueue{
 			Persistence:    persistence,
 			TaskExecutor:   serviceBuilder,
 			TaskQueryTable: make(SlotRecorder),
+			IsReady:        false,
 		}
 	})
 	return delayQueueInstance
 }
 
-func (dq *delayQueue) Start() {
-	// ensure only one time wheel has been created
+func (dq *DelayQueue) Start() {
+	// ensure only excute one time even multi delay queue instances call it
 	onceStart.Do(dq.init)
 }
 
-func (dq *delayQueue) init() {
+func (dq *DelayQueue) init() {
+	log.Println("delay queue init...")
 	// load task from cache
 	dq.loadTasksFromDb()
 
@@ -115,7 +122,7 @@ func (dq *delayQueue) init() {
 						// This can ensure the business simplicity of the delay queue and avoid problems that are difficult to maintain.
 						// If there is a problem with a specific business and you need to be notified repeatedly,
 						// you can add the task back to the queue.
-						go dq.ExecuteTask(p.TaskType, p.TaskParams)
+						go dq.ExecuteTask(p.TaskMode, p.TaskData)
 						// delete task
 						// if the first node
 						if prev == p {
@@ -146,28 +153,32 @@ func (dq *delayQueue) init() {
 	// async to update timewheel pointer
 	go func() {
 		// refresh pinter internal seconds
-		refreshInternal, _ := strconv.Atoi(GetEvnWithDefaultVal("REFRESH_POINTER_INTERNAL", fmt.Sprintf("%d", REFRESH_POINTER_DEFAULT_SECONDS)))
+		refreshInternal, _ := strconv.Atoi(common.GetEvnWithDefaultVal("REFRESH_POINTER_INTERNAL", fmt.Sprintf("%d", REFRESH_POINTER_DEFAULT_SECONDS)))
 		if refreshInternal < REFRESH_POINTER_DEFAULT_SECONDS {
 			refreshInternal = REFRESH_POINTER_DEFAULT_SECONDS
 		}
 		for {
 			select {
-			case <-time.After(time.Second * REFRESH_POINTER_DEFAULT_SECONDS):
+			case <-time.After(time.Second * time.Duration(refreshInternal)):
 				err := dq.Persistence.SaveWheelTimePointer(int(dq.CurrentIndex))
-				log.Println(err)
+				if err != nil {
+					log.Println(err)
+				}
 			}
 		}
 
 	}()
+
+	dq.IsReady = true
 }
 
-func (dq *delayQueue) loadTasksFromDb() {
+func (dq *DelayQueue) loadTasksFromDb() {
 	tasks := dq.Persistence.GetList()
 	if tasks != nil && len(tasks) > 0 {
 		for _, task := range tasks {
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
 			if delaySeconds > 0 {
-				tk, _ := dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskType, task.TaskParams, false)
+				tk, _ := dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskMode, task.TaskData, false)
 				if tk != nil {
 					dq.TaskQueryTable[task.Id] = task.WheelPosition
 				}
@@ -177,17 +188,17 @@ func (dq *delayQueue) loadTasksFromDb() {
 }
 
 // Add a task to the delay queue
-func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskParams interface{}) (task *Task, err error) {
+func (dq *DelayQueue) Push(delaySeconds time.Duration, taskMode notify.NotifyMode, taskData interface{}) (task *Task, err error) {
 	var pms string
-	result, ok := taskParams.(string)
+	result, ok := taskData.(string)
 	if !ok {
-		tp, _ := json.Marshal(taskParams)
+		tp, _ := json.Marshal(taskData)
 		pms = string(tp)
 	} else {
 		pms = result
 	}
 
-	task, err = dq.internalPush(delaySeconds, "", taskType, pms, true)
+	task, err = dq.internalPush(delaySeconds, "", taskMode, pms, true)
 	if err == nil {
 		mutex.Lock()
 		dq.TaskQueryTable[task.Id] = task.WheelPosition
@@ -197,7 +208,7 @@ func (dq *delayQueue) Push(delaySeconds time.Duration, taskType string, taskPara
 	return
 }
 
-func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, taskType string, taskParams string, needPresis bool) (*Task, error) {
+func (dq *DelayQueue) internalPush(delaySeconds time.Duration, taskId string, taskMode notify.NotifyMode, taskData string, needPresis bool) (*Task, error) {
 	if int(delaySeconds.Seconds()) == 0 {
 		errorMsg := fmt.Sprintf("the delay time cannot be less than 1 second, current is: %v", delaySeconds)
 		return nil, errors.New(errorMsg)
@@ -218,8 +229,8 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 		Id:            taskId,
 		CycleCount:    cycle,
 		WheelPosition: index,
-		TaskType:      taskType,
-		TaskParams:    taskParams,
+		TaskMode:      taskMode,
+		TaskData:      taskData,
 	}
 
 	if cycle > 0 && index <= int(dq.CurrentIndex) {
@@ -248,13 +259,13 @@ func (dq *delayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 }
 
 // execute task
-func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
+func (dq *DelayQueue) ExecuteTask(taskMode notify.NotifyMode, taskData string) error {
 	if dq.TaskExecutor != nil {
-		executor := dq.TaskExecutor(taskType)
+		executor := dq.TaskExecutor(taskMode)
 		if executor != nil {
-			log.Printf("Execute task: %s with params: %s\n", taskType, taskParams)
+			log.Printf("Execute task: %d with params: %s\n", taskMode, taskData)
 
-			return executor.DoDelayTask(taskParams)
+			return executor.DoDelayTask(taskData)
 		} else {
 			return errors.New("executor is nil")
 		}
@@ -265,7 +276,7 @@ func (dq *delayQueue) ExecuteTask(taskType, taskParams string) error {
 }
 
 // Get the number of tasks on a time wheel
-func (dq *delayQueue) WheelTaskQuantity(index int) int {
+func (dq *DelayQueue) WheelTaskQuantity(index int) int {
 	tasks := dq.TimeWheel[index].NotifyTasks
 	if tasks == nil {
 		return 0
@@ -278,7 +289,7 @@ func (dq *delayQueue) WheelTaskQuantity(index int) int {
 	return k
 }
 
-func (dq *delayQueue) GetTask(taskId string) *Task {
+func (dq *DelayQueue) GetTask(taskId string) *Task {
 	mutex.Lock()
 	val, ok := dq.TaskQueryTable[taskId]
 	mutex.Unlock()
@@ -295,13 +306,13 @@ func (dq *delayQueue) GetTask(taskId string) *Task {
 	}
 }
 
-func (dq *delayQueue) UpdateTask(taskId, taskType, taskParams string) error {
+func (dq *DelayQueue) UpdateTask(taskId string, taskMode notify.NotifyMode, taskData string) error {
 	task := dq.GetTask(taskId)
 	if task == nil {
 		return errors.New("task not found")
 	}
-	task.TaskType = taskType
-	task.TaskParams = taskParams
+	task.TaskMode = taskMode
+	task.TaskData = taskData
 
 	// update cache
 	dq.Persistence.Save(task)
@@ -309,7 +320,7 @@ func (dq *delayQueue) UpdateTask(taskId, taskType, taskParams string) error {
 	return nil
 }
 
-func (dq *delayQueue) DeleteTask(taskId string) error {
+func (dq *DelayQueue) DeleteTask(taskId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 	val, ok := dq.TaskQueryTable[taskId]
@@ -342,7 +353,7 @@ func (dq *delayQueue) DeleteTask(taskId string) error {
 	}
 }
 
-func (dq *delayQueue) RemoveAllTasks() error {
+func (dq *DelayQueue) RemoveAllTasks() error {
 	dq.TaskQueryTable = make(SlotRecorder)
 	for i := 0; i < len(dq.TimeWheel); i++ {
 		dq.TimeWheel[i].NotifyTasks = nil

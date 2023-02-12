@@ -1,4 +1,4 @@
-package godelayqueue
+package common
 
 import "os"
 

@@ -1,0 +1,13 @@
+version: '3.5'
+
+x-logging:
+  &default-logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "10"
+
+services:
+  go-delayqueue:
+    build: .
+    image: 0raymond0/go-delayqueue:1.0
