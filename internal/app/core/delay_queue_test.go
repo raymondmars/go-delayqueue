@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/raymondmars/go-delayqueue/internal/app/notify"
 	"github.com/stretchr/testify/assert"
 )
@@ -56,19 +57,35 @@ var dq *DelayQueue
 func testBeforeSetUp() {
 	presisDb := &testDoNothingDb{}
 	dq = &DelayQueue{
-		Persistence:    presisDb,
-		TaskExecutor:   testFactory,
-		TaskQueryTable: make(SlotRecorder),
+		Persistence:  presisDb,
+		TaskExecutor: testFactory,
 	}
 }
 
 func testWithRedisBeforeSetUp() {
 	dq = &DelayQueue{
-		Persistence:    getRedisDb(),
-		TaskExecutor:   testFactory,
-		TaskQueryTable: make(SlotRecorder),
+		Persistence:  getRedisDb(),
+		TaskExecutor: testFactory,
 	}
 	dq.RemoveAllTasks()
+}
+
+func TestBuildTaskId(t *testing.T) {
+	testBeforeSetUp()
+	for i := 0; i < WHEEL_SIZE; i++ {
+		header := uuid.New().String()
+		assert.Equal(t, fmt.Sprintf("%sx%x", header, i), dq.buildTaskId(header, i))
+	}
+}
+
+func TestParseSlotIndex(t *testing.T) {
+	testBeforeSetUp()
+	for i := 0; i < WHEEL_SIZE; i++ {
+		taskId := dq.buildTaskId(uuid.New().String(), i)
+		index, err := dq.parseSlotIndex(taskId)
+		assert.NoError(t, err)
+		assert.Equal(t, i, int(index))
+	}
 }
 
 func TestCanntPushTask(t *testing.T) {
@@ -191,11 +208,11 @@ func TestDeleteTask(t *testing.T) {
 	tk1, _ := dq.Push(time.Duration(targetSeconds)*time.Second, notify.HTTP, "hello1")
 	tk2, _ := dq.Push(time.Duration(targetSeconds)*time.Second, notify.SubPub, "hello2")
 	tk3, _ := dq.Push(time.Duration(targetSeconds)*time.Second, notify.SubPub, "hello3")
-	assert.Equal(t, 3, len(dq.TaskQueryTable))
+
 	assert.Equal(t, 3, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 	err := dq.DeleteTask(tk2.Id)
 	assert.Nil(t, err)
-	assert.Equal(t, 2, len(dq.TaskQueryTable))
+
 	assert.Equal(t, 2, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 
 	assert.Equal(t, dq.GetTask(tk1.Id).TaskMode, notify.HTTP)
@@ -207,7 +224,6 @@ func TestDeleteTask(t *testing.T) {
 	dq.DeleteTask(tk1.Id)
 	dq.DeleteTask(tk3.Id)
 
-	assert.Equal(t, 0, len(dq.TaskQueryTable))
 	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 }
 
@@ -230,7 +246,7 @@ func TestConcurrentDeleteTasks(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	assert.Equal(t, taskCounts, len(dq.TaskQueryTable))
+
 	assert.Equal(t, taskCounts, len(taskIds))
 	assert.Equal(t, taskCounts, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 
@@ -243,7 +259,6 @@ func TestConcurrentDeleteTasks(t *testing.T) {
 	}
 	wg.Wait()
 
-	assert.Equal(t, 0, len(dq.TaskQueryTable))
 	assert.Equal(t, 0, dq.WheelTaskQuantity(targetSeconds%WHEEL_SIZE))
 }
 
@@ -257,12 +272,11 @@ func TestDelayQueueAndRedisIntegrate(t *testing.T) {
 			dq.Push(time.Duration(seconds)*time.Second, notify.HTTP, i)
 		}
 	}
-	assert.Equal(t, eachSoltNodes*len(randomSlots), len(dq.TaskQueryTable))
+
 	for _, seconds := range randomSlots {
 		assert.Equal(t, eachSoltNodes, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
 	}
 	//remove nodes
-	dq.TaskQueryTable = make(SlotRecorder)
 	for i := 0; i < len(dq.TimeWheel); i++ {
 		dq.TimeWheel[i].NotifyTasks = nil
 	}
@@ -270,13 +284,11 @@ func TestDelayQueueAndRedisIntegrate(t *testing.T) {
 	// for _, wheel := range dq.TimeWheel {
 	// 	wheel.NotifyTasks = nil
 	// }
-	assert.Equal(t, 0, len(dq.TaskQueryTable))
 	for _, seconds := range randomSlots {
 		assert.Equal(t, 0, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
 	}
 	// load from cache
 	dq.loadTasksFromDb()
-	assert.Equal(t, eachSoltNodes*len(randomSlots), len(dq.TaskQueryTable))
 	for _, seconds := range randomSlots {
 		assert.Equal(t, eachSoltNodes, dq.WheelTaskQuantity(seconds%WHEEL_SIZE))
 	}
