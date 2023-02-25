@@ -50,9 +50,8 @@ func (td *testDoNothingDb) SaveWheelTimePointer(index int) error {
 func testQueue() *core.DelayQueue {
 	presisDb := &testDoNothingDb{}
 	return &core.DelayQueue{
-		Persistence:    presisDb,
-		TaskExecutor:   testFactory,
-		TaskQueryTable: make(core.SlotRecorder),
+		Persistence:  presisDb,
+		TaskExecutor: testFactory,
 	}
 }
 

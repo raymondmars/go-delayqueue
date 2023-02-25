@@ -49,7 +49,6 @@ type DelayQueue struct {
 	// task executor
 	TaskExecutor BuildExecutor
 
-	TaskQueryTable SlotRecorder
 	// ready flag
 	IsReady bool
 }
@@ -58,10 +57,9 @@ type DelayQueue struct {
 func GetDelayQueue(serviceBuilder BuildExecutor) *DelayQueue {
 	onceNew.Do(func() {
 		delayQueueInstance = &DelayQueue{
-			Persistence:    getRedisDb(),
-			TaskExecutor:   serviceBuilder,
-			TaskQueryTable: make(SlotRecorder),
-			IsReady:        false,
+			Persistence:  getRedisDb(),
+			TaskExecutor: serviceBuilder,
+			IsReady:      false,
 		}
 	})
 	return delayQueueInstance
@@ -74,10 +72,9 @@ func GetDelayQueueWithPersis(serviceBuilder BuildExecutor, persistence Persisten
 	}
 	onceNew.Do(func() {
 		delayQueueInstance = &DelayQueue{
-			Persistence:    persistence,
-			TaskExecutor:   serviceBuilder,
-			TaskQueryTable: make(SlotRecorder),
-			IsReady:        false,
+			Persistence:  persistence,
+			TaskExecutor: serviceBuilder,
+			IsReady:      false,
 		}
 	})
 	return delayQueueInstance
@@ -136,10 +133,6 @@ func (dq *DelayQueue) init() {
 						}
 						// remove the task from the persistent object
 						dq.Persistence.Delete(taskId)
-						// remove task from query table
-						mutex.Lock()
-						delete(dq.TaskQueryTable, taskId)
-						mutex.Unlock()
 					} else {
 						p.CycleCount--
 						prev = p
@@ -178,10 +171,7 @@ func (dq *DelayQueue) loadTasksFromDb() {
 		for _, task := range tasks {
 			delaySeconds := (task.CycleCount * WHEEL_SIZE) + task.WheelPosition
 			if delaySeconds > 0 {
-				tk, _ := dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskMode, task.TaskData, false)
-				if tk != nil {
-					dq.TaskQueryTable[task.Id] = task.WheelPosition
-				}
+				dq.internalPush(time.Duration(delaySeconds)*time.Second, task.Id, task.TaskMode, task.TaskData, false)
 			}
 		}
 	}
@@ -199,11 +189,6 @@ func (dq *DelayQueue) Push(delaySeconds time.Duration, taskMode notify.NotifyMod
 	}
 
 	task, err = dq.internalPush(delaySeconds, "", taskMode, pms, true)
-	if err == nil {
-		mutex.Lock()
-		dq.TaskQueryTable[task.Id] = task.WheelPosition
-		mutex.Unlock()
-	}
 
 	return
 }
@@ -222,8 +207,7 @@ func (dq *DelayQueue) internalPush(delaySeconds time.Duration, taskId string, ta
 	index := calculateValue % WHEEL_SIZE
 
 	if taskId == "" {
-		u := uuid.New()
-		taskId = u.String()
+		taskId = dq.buildTaskId(uuid.New().String(), index)
 	}
 	task := &Task{
 		Id:            taskId,
@@ -290,13 +274,12 @@ func (dq *DelayQueue) WheelTaskQuantity(index int) int {
 }
 
 func (dq *DelayQueue) GetTask(taskId string) *Task {
-	mutex.Lock()
-	val, ok := dq.TaskQueryTable[taskId]
-	mutex.Unlock()
-	if !ok {
+	index, err := dq.parseSlotIndex(taskId)
+	if err != nil {
+		log.Println(err)
 		return nil
 	} else {
-		tasks := dq.TimeWheel[val].NotifyTasks
+		tasks := dq.TimeWheel[index].NotifyTasks
 		for p := tasks; p != nil; p = p.Next {
 			if p.Id == taskId {
 				return p
@@ -323,22 +306,21 @@ func (dq *DelayQueue) UpdateTask(taskId string, taskMode notify.NotifyMode, task
 func (dq *DelayQueue) DeleteTask(taskId string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
-	val, ok := dq.TaskQueryTable[taskId]
-	if !ok {
-		return errors.New("task not found")
+	index, err := dq.parseSlotIndex(taskId)
+	if err != nil {
+		return err
 	} else {
-		p := dq.TimeWheel[val].NotifyTasks
+		p := dq.TimeWheel[index].NotifyTasks
 		prev := p
 		for p != nil {
 			if p.Id == taskId {
 				// if current node is root node
 				if p == prev {
-					dq.TimeWheel[val].NotifyTasks = p.Next
+					dq.TimeWheel[index].NotifyTasks = p.Next
 				} else {
 					prev.Next = p.Next
 				}
 				// clear cache
-				delete(dq.TaskQueryTable, taskId)
 				dq.Persistence.Delete(taskId)
 				p = nil
 				prev = nil
@@ -354,10 +336,29 @@ func (dq *DelayQueue) DeleteTask(taskId string) error {
 }
 
 func (dq *DelayQueue) RemoveAllTasks() error {
-	dq.TaskQueryTable = make(SlotRecorder)
 	for i := 0; i < len(dq.TimeWheel); i++ {
 		dq.TimeWheel[i].NotifyTasks = nil
 	}
 	dq.Persistence.RemoveAll()
 	return nil
+}
+
+func (dq *DelayQueue) buildTaskId(header string, slotIndex int) string {
+	return fmt.Sprintf("%sx%x", header, slotIndex)
+}
+
+func (dq *DelayQueue) parseSlotIndex(taskId string) (int64, error) {
+	k := 0
+	for i := len(taskId) - 1; i >= 0; i-- {
+		if taskId[i] == 'x' {
+			break
+		}
+		k++
+	}
+	if k > 0 {
+		sufix := taskId[len(taskId)-k:]
+		return strconv.ParseInt(sufix, 16, 32)
+	} else {
+		return 0, errors.New("invalid task id")
+	}
 }
