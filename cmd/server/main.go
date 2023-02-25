@@ -29,6 +29,7 @@ var delayQueue *core.DelayQueue
 // quit: ctrl+] and input quit
 //telnet x.x.x.x xxxx <<EOF
 func main() {
+	welcome()
 	// init logger
 	// Log as JSON instead of the default ASCII formatter.
 	log.SetFormatter(&log.JSONFormatter{})
@@ -38,7 +39,11 @@ func main() {
 	log.SetOutput(os.Stdout)
 
 	// Only log the warning severity or above.
-	log.SetLevel(log.InfoLevel)
+	if common.IsDevEnv() {
+		log.SetLevel(log.InfoLevel)
+	} else {
+		log.SetLevel(log.WarnLevel)
+	}
 
 	host := common.GetEvnWithDefaultVal("CONN_HOST", DEFAULT_HOST)
 	port := common.GetEvnWithDefaultVal("CONN_PORT", DEFAULT_PORT)
@@ -52,7 +57,7 @@ func main() {
 		log.Error("Listen error: ", err)
 	}
 	defer l.Close()
-	log.Infoln("Listening on " + host + ":" + port)
+	println("-> ready for accepting any connection on " + host + ":" + port)
 	for {
 		// Listen for an incoming connection.
 		conn, err := l.Accept()

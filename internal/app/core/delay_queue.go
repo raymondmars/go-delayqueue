@@ -86,7 +86,6 @@ func (dq *DelayQueue) Start() {
 }
 
 func (dq *DelayQueue) init() {
-	log.Println("delay queue init...")
 	// load task from cache
 	dq.loadTasksFromDb()
 

@@ -10,3 +10,11 @@ func GetEvnWithDefaultVal(key string, defaultVal string) string {
 		return defaultVal
 	}
 }
+
+func IsPrdEnv() bool {
+	return os.Getenv("ENV") == "prd"
+}
+
+func IsDevEnv() bool {
+	return os.Getenv("ENV") == "dev" || os.Getenv("ENV") == ""
+}
